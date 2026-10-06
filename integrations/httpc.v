@@ -111,41 +111,46 @@ fn strip_brackets(s string) string {
 	return s
 }
 
-struct Sock {
+// Sock is the transport as a sum type: either a plain TCP connection or
+// a TLS upgrade of one. Matching on it is exhaustive, so no socket kind
+// can fall through the cracks.
+type Sock = TcpSock | TlsSock
+
+struct TcpSock {
 mut:
-	tcp ?&net.TcpConn
-	tls ?TlsSock
+	conn &net.TcpConn
 }
 
 fn dial_target(t ParsedTarget, timeout_ms int) !Sock {
 	if t.use_tls {
-		sock := tls_connect(strip_brackets(t.dial_ip), t.port, t.host, timeout_ms)!
-		return Sock{tls: sock}
+		return tls_connect(strip_brackets(t.dial_ip), t.port, t.host, timeout_ms)!
 	}
 	mut conn := net.dial_tcp('${t.dial_ip}:${t.port}')!
 	conn.set_read_timeout(time.Duration(i64(timeout_ms) * 1000000))
-	return Sock{tcp: conn}
+	return TcpSock{conn}
 }
 
 fn (mut s Sock) close() {
-	if mut c := s.tcp {
-		c.close() or {}
-	}
-	if mut t := s.tls {
-		t.close()
+	match s {
+		TcpSock {
+			s.conn.close() or {}
+		}
+		TlsSock {
+			s.close()
+		}
 	}
 }
 
 fn (mut s Sock) write_all(data []u8) ! {
 	mut done := 0
 	for done < data.len {
-		mut n := 0
-		if mut t := s.tls {
-			n = t.write(data[done..])!
-		} else if mut c := s.tcp {
-			n = c.write(data[done..])!
-		} else {
-			return error('closed socket')
+		n := match s {
+			TcpSock {
+				s.conn.write(data[done..])!
+			}
+			TlsSock {
+				s.write(data[done..])!
+			}
 		}
 		done += n
 	}
@@ -158,23 +163,23 @@ fn (mut s Sock) read_all(limit int) ![]u8 {
 	mut buf := []u8{len: 32768}
 	mut total := 0
 	for {
-		mut n := 0
-		if mut t := s.tls {
-			n = t.read(mut buf) or {
-				if err is io.Eof {
-					break
+		n := match s {
+			TlsSock {
+				s.read(mut buf) or {
+					if err is io.Eof {
+						break
+					}
+					return err
 				}
-				return err
 			}
-		} else if mut c := s.tcp {
-			n = c.read(mut buf) or {
-				if err is io.Eof {
-					break
+			TcpSock {
+				s.conn.read(mut buf) or {
+					if err is io.Eof {
+						break
+					}
+					return err
 				}
-				return err
 			}
-		} else {
-			break
 		}
 		if n <= 0 {
 			break
@@ -219,6 +224,32 @@ fn with_request_defaults(headers map[string]string, body []u8) map[string]string
 		full['Content-Length'] = body.len.str()
 	}
 	return full
+}
+
+// ContentCoding is the response content coding as an enum, so the
+// inflation dispatch below matches exhaustively over known codings.
+pub enum ContentCoding {
+	identity
+	gzip
+	x_gzip
+	deflate
+}
+
+fn content_coding_of(header_value string) ContentCoding {
+	match header_value.to_lower() {
+		'gzip' {
+			return .gzip
+		}
+		'x-gzip' {
+			return .x_gzip
+		}
+		'deflate' {
+			return .deflate
+		}
+		else {
+			return .identity
+		}
+	}
 }
 
 fn find_header_end(data []u8) int {
@@ -383,11 +414,14 @@ fn parse_response(method string, raw []u8) !HttpResponse {
 			}
 		}
 	}
-	enc := resp_headers['content-encoding'].to_lower()
-	if enc == 'gzip' || enc == 'x-gzip' {
-		payload = gzip.decompress(payload) or { return error('gzip: ${err}') }
-	} else if enc == 'deflate' {
-		payload = zlib.decompress(payload) or { return error('deflate: ${err}') }
+	match content_coding_of(resp_headers['content-encoding']) {
+		.gzip, .x_gzip {
+			payload = gzip.decompress(payload) or { return error('gzip: ${err}') }
+		}
+		.deflate {
+			payload = zlib.decompress(payload) or { return error('deflate: ${err}') }
+		}
+		.identity {}
 	}
 	return HttpResponse{status, resp_headers, payload}
 }

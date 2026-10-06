@@ -49,3 +49,29 @@ foreign-content cases) that predate this session and belong to the
 - `richtext` oracle: 10 known diffs outstanding (prior work).
 - Remaining unported surface: `web`/`front`/`cable` handlers, assets/templates,
   `cmd` main, benches.
+
+## Addendum: algebraic refactor (enums, sum types, exhaustive match)
+
+The port now demos V's ML-family features where Go uses int tags, bool
+flags, and nil-able fields:
+
+- `rails.JVal` is a sum type (`JNull | JBool | JNum | JStr | JArr | JObj`)
+  with match-based accessors; the parser, canonicalizer, and every consumer
+  (`verifier`, `cookies`, `streams`, `storage`, oracle tests) match on it.
+- `integrations.Sock` is `TcpSock | TlsSock`; I/O dispatches via exhaustive
+  match (V sum types cannot hold references, hence the thin `TcpSock`
+  wrapper over `&net.TcpConn`).
+- `integrations.CurvePoint` is `PointInf | AffinePoint` — no infinity flag
+  to forget; `add`/`double`/`mul` match on it.
+- `integrations.WebhookReply` is `BareReply | TextReply | AttachmentReply`
+  instead of one struct with nil-able fields; tests match each oracle shape
+  against exactly one variant.
+- `integrations.UnfurlBody` is `NoPreview | Preview` (errors stay in the
+  `!` Result channel); `ContentCoding` is an enum with multi-pattern match
+  arms (`.gzip, .x_gzip`) in the inflation dispatch.
+- `math.big` comparison pitfall now reads as a strength: all P-256
+  comparisons go through value-based `big_eq`, since `==` also compares
+  internal digit-array lengths.
+
+`v fmt`/`v vet` clean; `v test .` 12/13 (only the 10 pre-existing
+`richtext` oracle diffs).

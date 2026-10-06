@@ -23,13 +23,17 @@ pub fn (s &Secrets) verify_stream(signed string) !string {
 	}
 	data := decode64(signed[..i]) or { return err_invalid() }
 	value := jparse(data.bytestr()) or { return err_invalid() }
-	if value.kind == 4 {
-		return value.str
+	match value {
+		JStr {
+			return value.text
+		}
+		JNum {
+			return value.literal
+		}
+		else {
+			return err_invalid()
+		}
 	}
-	if value.kind == 3 {
-		return value.num
-	}
-	return err_invalid()
 }
 
 pub fn room_stream(kind string, id i64) string {
@@ -54,6 +58,7 @@ pub fn stream_room(name string) !(string, i64) {
 			return err_invalid()
 		}
 	}
+
 	id := parts[4].i64()
 	// Reject non-canonical integers the way ParseInt does.
 	if id <= 0 || parts[4] != id.str() {

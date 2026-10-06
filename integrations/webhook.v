@@ -4,13 +4,30 @@ import net.urllib
 
 pub const max_webhook_reply = 100 << 20
 
-pub struct WebhookReply {
-pub mut:
+// WebhookReply is the bot-reply outcome as a sum type: a bare status, a
+// text reply, or a file attachment. Go models these as nil-able fields on
+// one struct; here every outcome is an explicit variant, so matching on a
+// reply is exhaustive and the timeout text can never ride along with an
+// attachment by accident.
+pub type WebhookReply = BareReply | TextReply | AttachmentReply
+
+pub struct BareReply {
+pub:
+	status int
+}
+
+pub struct TextReply {
+pub:
+	status int
+	text   string
+}
+
+pub struct AttachmentReply {
+pub:
 	status       int
-	text         ?string
-	attachment   []u8
 	filename     string
 	content_type string
+	data         []u8
 }
 
 pub struct WebhookClient {
@@ -31,8 +48,9 @@ pub fn (c WebhookClient) deliver(endpoint string, payload []u8) !WebhookReply {
 	reply := c.deliver_inner(endpoint, payload) or {
 		msg := err.msg().to_lower()
 		if msg.contains('timeout') || msg.contains('timed out') || msg.contains('deadline') {
-			return WebhookReply{
-				text: 'Failed to respond within 7 seconds'
+			return TextReply{
+				status: 0
+				text:   'Failed to respond within 7 seconds'
 			}
 		}
 		return err
@@ -51,26 +69,28 @@ fn (c WebhookClient) deliver_inner(endpoint string, payload []u8) !WebhookReply 
 	if response.body.len > max_webhook_reply {
 		return error('webhook reply exceeds 100 MB')
 	}
-	mut reply := WebhookReply{
-		status: response.status
-	}
 	// An absent Content-Type ends the reply; a present-but-invalid one is an
 	// error, like Go's Header map presence check.
 	if 'content-type' !in response.headers {
-		return reply
+		return BareReply{
+			status: response.status
+		}
 	}
 	ct := response.headers['content-type']
 	content_type := response_media_type(ct)
 	if response.status == 200 && (content_type == 'text/plain' || content_type == 'text/html') {
-		text := to_valid_utf8(response.body.bytestr())
-		reply.text = text
-		return reply
+		return TextReply{
+			status: response.status
+			text:   to_valid_utf8(response.body.bytestr())
+		}
 	}
 	symbol, registered := webhook_mime(content_type)!
-	reply.attachment = response.body.clone()
-	reply.filename = 'attachment.' + symbol
-	reply.content_type = registered
-	return reply
+	return AttachmentReply{
+		status:       response.status
+		filename:     'attachment.' + symbol
+		content_type: registered
+		data:         response.body.clone()
+	}
 }
 
 fn parse_webhook_url(endpoint string) !string {

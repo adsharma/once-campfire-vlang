@@ -141,7 +141,8 @@ pub fn (mut d DB) update_room(id i64, kind string, name string, users []i64) ! {
 		]) or { return err }
 	} else if kind == 'Rooms::Closed' {
 		members := d.tx_all('SELECT user_id FROM memberships WHERE room_id=?', [
-			id.str()]) or { return err }
+			id.str(),
+		]) or { return err }
 		for r in members {
 			user := r.vals[0].i64()
 			if user !in users {
@@ -150,7 +151,8 @@ pub fn (mut d DB) update_room(id i64, kind string, name string, users []i64) ! {
 		}
 		if users.len == 0 {
 			d.tx_exec('DELETE FROM memberships WHERE room_id=?', [
-				id.str()]) or { return err }
+				id.str(),
+			]) or { return err }
 		} else {
 			mut args := [id.str()]
 			mut marks := []string{}

@@ -37,8 +37,8 @@ fn test_web_push_reference_decrypt() {
 	v := web_push_expected()
 	str := fn [v] (key string) string {
 		val := v.get(key)
-		assert val.kind == 4, 'missing string ${key}'
-		return val.str
+		assert val.is_str(), 'missing string ${key}'
+		return val.str()
 	}
 	msg := str('message')
 	priv := must_decode64(str('receiver_private_key'))
@@ -68,8 +68,8 @@ fn test_vapid_segments() {
 	v := web_push_expected()
 	str := fn [v] (key string) string {
 		val := v.get(key)
-		assert val.kind == 4, 'missing string ${key}'
-		return val.str
+		assert val.is_str(), 'missing string ${key}'
+		return val.str()
 	}
 	// A fixed VAPID key is not shipped in the oracle; generate one and check
 	// the deterministic segments against freshly built claims.

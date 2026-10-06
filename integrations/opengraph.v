@@ -264,17 +264,29 @@ fn strip_non_ascii(s string) string {
 	return out.bytestr()
 }
 
-pub fn (u Unfurler) unfurl(location string) ![]u8 {
-	parsed := urllib.parse(location) or { return []u8{} }
+// UnfurlBody is the unfurl outcome as a sum type: either there is nothing
+// worth previewing, or there is a JSON preview document. Errors (bad mailto,
+// dead tweet embeds) still travel in the Result channel.
+pub type UnfurlBody = NoPreview | Preview
+
+pub struct NoPreview {}
+
+pub struct Preview {
+pub:
+	json []u8
+}
+
+pub fn (u Unfurler) unfurl(location string) !UnfurlBody {
+	parsed := urllib.parse(location) or { return NoPreview{} }
 	if parsed.scheme == 'mailto' {
 		if !location[7..].contains('@') {
 			return error('URI invalid component')
 		}
-		return []u8{}
+		return NoPreview{}
 	}
 	for c in location.runes() {
 		if u32(c) > 127 || u32(c) <= 32 {
-			return []u8{}
+			return NoPreview{}
 		}
 	}
 	mut fetch_url := location
@@ -291,13 +303,13 @@ pub fn (u Unfurler) unfurl(location string) ![]u8 {
 	}
 	// The reference validates the (possibly rewritten) fetch URL through the
 	// guard even when the fetch itself is skipped for media URLs.
-	parsed_fetch := urllib.parse(fetch_url) or { return []u8{} }
+	parsed_fetch := urllib.parse(fetch_url) or { return NoPreview{} }
 	if parsed_fetch.hostname() == '' {
-		return []u8{}
+		return NoPreview{}
 	}
 	mut cache := map[string]IpAddr{}
 	mut rr_loc := u.client.resolver_or_default()
-	resolve_cached(parsed_fetch.hostname(), mut cache, mut rr_loc) or { return []u8{} }
+	resolve_cached(parsed_fetch.hostname(), mut cache, mut rr_loc) or { return NoPreview{} }
 	mut body := []u8{}
 	if !media_url(fetch_url) {
 		fres := u.fetch('GET', fetch_url, mut cache) or { FetchResult{} }
@@ -328,7 +340,7 @@ pub fn (u Unfurler) unfurl(location string) ![]u8 {
 	title := richtext.strip_tags(found['title'])!
 	description := richtext.strip_tags(found['description'])!
 	if og_is_blank(title) || og_is_blank(description) || og_is_blank(canonical) {
-		return []u8{}
+		return NoPreview{}
 	}
 	// Preserve the reference model's attribute insertion order in render json.
 	mut keys := []string{}
@@ -374,7 +386,7 @@ pub fn (u Unfurler) unfurl(location string) ![]u8 {
 		}
 	}
 	result << ',"context_for_validation":{"context":null},"errors":{}}'.bytes()
-	return result
+	return Preview{result}
 }
 
 fn json_quote_og(s string) string {

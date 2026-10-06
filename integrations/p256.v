@@ -117,55 +117,88 @@ fn fpow(base big.Integer, exp big.Integer, p big.Integer) big.Integer {
 	return result
 }
 
-struct P256Point {
-	x        big.Integer
-	y        big.Integer
-	infinity bool
+// CurvePoint is an elliptic-curve point as a sum type: the point at
+// infinity, or an affine (x, y) pair. There is no boolean flag to forget
+// to check -- matching handles both cases exhaustively.
+type CurvePoint = PointInf | AffinePoint
+
+pub struct PointInf {}
+
+pub struct AffinePoint {
+pub:
+	x big.Integer
+	y big.Integer
 }
 
-fn p256_add(p P256Point, q P256Point, mod big.Integer) P256Point {
-	if p.infinity {
+fn point_inf() CurvePoint {
+	return PointInf{}
+}
+
+fn point_xy(x big.Integer, y big.Integer) CurvePoint {
+	return AffinePoint{x, y}
+}
+
+// xy unwraps the affine coordinates; validated points are never infinity.
+fn (p CurvePoint) xy() (big.Integer, big.Integer) {
+	match p {
+		AffinePoint {
+			return p.x, p.y
+		}
+		PointInf {
+			return big.integer_from_int(0), big.integer_from_int(0)
+		}
+	}
+}
+
+fn p256_add(p CurvePoint, q CurvePoint, mod big.Integer) CurvePoint {
+	if p is PointInf {
 		return q
 	}
-	if q.infinity {
+	if q is PointInf {
 		return p
 	}
-	if big_eq(p.x, q.x) {
-		if big_eq(p.y, q.y) {
+	px, py := p.xy()
+	qx, qy := q.xy()
+	if big_eq(px, qx) {
+		if big_eq(py, qy) {
 			return p256_double(p, mod)
 		}
-		return P256Point{big.integer_from_int(0), big.integer_from_int(0), true}
+		return point_inf()
 	}
 	// lambda = (qy - py) / (qx - px)
-	num := fsub(q.y, p.y, mod)
-	den := fsub(q.x, p.x, mod)
+	num := fsub(qy, py, mod)
+	den := fsub(qx, px, mod)
 	lambda := fmul(num, fpow(den, mod - big.integer_from_int(2), mod), mod)
-	x := fsub(fsub(fmul(lambda, lambda, mod), p.x, mod), q.x, mod)
-	y := fsub(fmul(lambda, fsub(p.x, x, mod), mod), p.y, mod)
-	return P256Point{x, y, false}
+	x := fsub(fsub(fmul(lambda, lambda, mod), px, mod), qx, mod)
+	y := fsub(fmul(lambda, fsub(px, x, mod), mod), py, mod)
+	return point_xy(x, y)
 }
 
-fn p256_double(p P256Point, mod big.Integer) P256Point {
-	if p.infinity {
-		return p
+fn p256_double(p CurvePoint, mod big.Integer) CurvePoint {
+	match p {
+		PointInf {
+			return p
+		}
+		AffinePoint {
+			if big_is_zero(p.y) {
+				return point_inf()
+			}
+			three := big.integer_from_int(3)
+			two := big.integer_from_int(2)
+			// lambda = (3x^2 + a) / 2y with a = -3: 3(x^2 - 1) / 2y
+			x2 := fmul(p.x, p.x, mod)
+			num := fmul(three, fsub(x2, big.integer_from_int(1), mod), mod)
+			den := fmul(two, p.y, mod)
+			lambda := fmul(num, fpow(den, mod - big.integer_from_int(2), mod), mod)
+			x := fsub(fmul(lambda, lambda, mod), p.x + p.x, mod)
+			y := fsub(fmul(lambda, fsub(p.x, x, mod), mod), p.y, mod)
+			return point_xy(x, y)
+		}
 	}
-	if big_is_zero(p.y) {
-		return P256Point{big.integer_from_int(0), big.integer_from_int(0), true}
-	}
-	three := big.integer_from_int(3)
-	two := big.integer_from_int(2)
-	// lambda = (3x^2 + a) / 2y with a = -3: 3(x^2 - 1) / 2y
-	x2 := fmul(p.x, p.x, mod)
-	num := fmul(three, fsub(x2, big.integer_from_int(1), mod), mod)
-	den := fmul(two, p.y, mod)
-	lambda := fmul(num, fpow(den, mod - big.integer_from_int(2), mod), mod)
-	x := fsub(fmul(lambda, lambda, mod), p.x + p.x, mod)
-	y := fsub(fmul(lambda, fsub(p.x, x, mod), mod), p.y, mod)
-	return P256Point{x, y, false}
 }
 
-fn p256_mul(scalar big.Integer, point P256Point, mod big.Integer) P256Point {
-	mut out := P256Point{big.integer_from_int(0), big.integer_from_int(0), true}
+fn p256_mul(scalar big.Integer, point CurvePoint, mod big.Integer) CurvePoint {
+	mut out := point_inf()
 	mut add := point
 	mut k := scalar
 	two := big.integer_from_int(2)
@@ -180,13 +213,13 @@ fn p256_mul(scalar big.Integer, point P256Point, mod big.Integer) P256Point {
 	return out
 }
 
-fn p256_base() P256Point {
-	return P256Point{p256_gx(), p256_gy(), false}
+fn p256_base() CurvePoint {
+	return point_xy(p256_gx(), p256_gy())
 }
 
 // p256_pub parses an uncompressed (65-byte 0x04) or compressed (33-byte)
 // P-256 point and validates it is on the curve.
-fn p256_pub(raw []u8) !P256Point {
+fn p256_pub(raw []u8) !CurvePoint {
 	mod := p256_p()
 	if raw.len == 65 && raw[0] == 4 {
 		x := big_from_bytes(raw[1..33])
@@ -197,10 +230,10 @@ fn p256_pub(raw []u8) !P256Point {
 		x3 := fmul(x2, x, mod)
 		b := big_from_bytes(bytes_from_hex('5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b'))
 		rhs := fadd(fsub(x3, fmul(big.integer_from_int(3), x, mod), mod), b, mod)
-		if lhs != rhs {
+		if !big_eq(lhs, rhs) {
 			return error('invalid push subscription P-256 point')
 		}
-		return P256Point{x, y, false}
+		return point_xy(x, y)
 	}
 	if raw.len == 33 && (raw[0] == 2 || raw[0] == 3) {
 		x := big_from_bytes(raw[1..33])
@@ -214,27 +247,29 @@ fn p256_pub(raw []u8) !P256Point {
 		if !big_eq(fmul(y, y, mod), rhs) {
 			return error('invalid push subscription P-256 point')
 		}
-	odd := !big_is_zero(y.mod_euclid(big.integer_from_int(2)))
+			odd := !big_is_zero(y.mod_euclid(big.integer_from_int(2)))
 		if odd != (raw[0] == 3) {
 			y = fsub(big.integer_from_int(0), y, mod)
 		}
-		return P256Point{x, y, false}
+		return point_xy(x, y)
 	}
 	return error('invalid push subscription P-256 point')
 }
 
-fn p256_pub_bytes(p P256Point) []u8 {
+fn p256_pub_bytes(p CurvePoint) []u8 {
+	x, y := p.xy()
 	mut out := [u8(4)]
-	out << big_to_32(p.x)
-	out << big_to_32(p.y)
+	out << big_to_32(x)
+	out << big_to_32(y)
 	return out
 }
 
 // p256_ecdh returns the x-coordinate of priv * peer.
-fn p256_ecdh(priv []u8, peer P256Point) []u8 {
+fn p256_ecdh(priv []u8, peer CurvePoint) []u8 {
 	mod := p256_p()
 	agreed := p256_mul(big_from_bytes(priv), peer, mod)
-	return big_to_32(agreed.x)
+	x, _ := agreed.xy()
+	return big_to_32(x)
 }
 
 // p256_sign produces a raw 64-byte ES256 signature of a 32-byte hash.
@@ -249,10 +284,11 @@ fn p256_sign(hash []u8, priv []u8) ![]u8 {
 			continue
 		}
 		rp := p256_mul(k, p256_base(), p256_p())
-		if rp.infinity {
+		rx, _ := rp.xy()
+		if rp is PointInf {
 			continue
 		}
-		r := fmod(rp.x, n)
+		r := fmod(rx, n)
 		if big_is_zero(r) {
 			continue
 		}
@@ -268,7 +304,7 @@ fn p256_sign(hash []u8, priv []u8) ![]u8 {
 	return error('p256_sign failed')
 }
 
-fn p256_generate() !(P256Point, []u8) {
+fn p256_generate() !(CurvePoint, []u8) {
 	n := p256_n()
 	for {
 		priv := rand.bytes(32)!

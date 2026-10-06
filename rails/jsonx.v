@@ -3,46 +3,173 @@
 // signed/encrypted envelopes whose byte representation is part of the wire format.
 module rails
 
+// JVal is JSON as an algebraic data type: a sum of null, boolean, number
+// (kept as the source literal for precision), string, array, and object
+// (key order preserved) variants. Matching on it is exhaustive, so the
+// compiler rejects an unhandled JSON shape.
+pub type JVal = JNull | JBool | JNum | JStr | JArr | JObj
+
+pub struct JNull {}
+
+pub struct JBool {
+pub:
+	value bool
+}
+
+pub struct JNum {
+pub:
+	literal string
+}
+
+pub struct JStr {
+pub:
+	text string
+}
+
+pub struct JArr {
+pub:
+	items []JVal
+}
+
+pub struct JObj {
+pub:
+	fields []JPair
+}
+
 pub struct JPair {
 pub mut:
 	k string
 	v JVal
 }
 
-pub struct JVal {
-pub mut:
-	kind int // 0=null 1=false 2=true 3=number 4=string 5=array 6=object
-	num  string
-	str  string
-	arr  []JVal
-	obj  []JPair
-}
-
 pub fn jnull() JVal {
-	return JVal{kind: 0}
+	return JNull{}
 }
 
 pub fn jbool(b bool) JVal {
-	return JVal{kind: if b { 2 } else { 1 }}
+	return JBool{b}
 }
 
 pub fn jnum(s string) JVal {
-	return JVal{kind: 3, num: s}
+	return JNum{s}
 }
 
 pub fn jstr_val(s string) JVal {
-	return JVal{kind: 4, str: s}
+	return JStr{s}
 }
 
+// get projects an object field, or null when absent or not an object.
 pub fn (v JVal) get(key string) JVal {
-	if v.kind == 6 {
-		for p in v.obj {
-			if p.k == key {
-				return p.v
+	match v {
+		JObj {
+			for p in v.fields {
+				if p.k == key {
+					return p.v
+				}
 			}
+			return jnull()
+		}
+		else {
+			return jnull()
 		}
 	}
-	return jnull()
+}
+
+// is_null reports the null variant (including failed projections).
+pub fn (v JVal) is_null() bool {
+	return v is JNull
+}
+
+// is_obj reports the object variant.
+pub fn (v JVal) is_obj() bool {
+	return v is JObj
+}
+
+// is_str reports the string variant.
+pub fn (v JVal) is_str() bool {
+	return v is JStr
+}
+
+// is_num reports the number variant.
+pub fn (v JVal) is_num() bool {
+	return v is JNum
+}
+
+// is_arr reports the array variant.
+pub fn (v JVal) is_arr() bool {
+	return v is JArr
+}
+
+// is_bool_true reports the true variant.
+pub fn (v JVal) is_bool_true() bool {
+	match v {
+		JBool {
+			return v.value
+		}
+		else {
+			return false
+		}
+	}
+}
+
+// is_bool_false reports the false variant.
+pub fn (v JVal) is_bool_false() bool {
+	match v {
+		JBool {
+			return !v.value
+		}
+		else {
+			return false
+		}
+	}
+}
+
+// str unwraps the string variant, or empty for anything else.
+pub fn (v JVal) str() string {
+	match v {
+		JStr {
+			return v.text
+		}
+		else {
+			return ''
+		}
+	}
+}
+
+// num unwraps the number literal, or empty for anything else.
+pub fn (v JVal) num() string {
+	match v {
+		JNum {
+			return v.literal
+		}
+		else {
+			return ''
+		}
+	}
+}
+
+// arr unwraps the array variant, or empty for anything else.
+pub fn (v JVal) arr() []JVal {
+	match v {
+		JArr {
+			return v.items
+		}
+		else {
+			return []JVal{}
+		}
+	}
+}
+
+// obj unwraps the object fields, or empty for anything else.
+pub fn (v JVal) obj() []JPair {
+	match v {
+		JObj {
+			return v.fields
+		}
+		else {
+			return []JPair{}
+		}
+	}
 }
 
 struct JParser {
@@ -177,7 +304,7 @@ fn jparse_value(mut p JParser) !JVal {
 		jskip_ws(mut p)
 		if p.pos < p.s.len && p.s[p.pos] == `}` {
 			p.pos++
-			return JVal{kind: 6, obj: obj}
+			return JObj{obj}
 		}
 		for {
 			jskip_ws(mut p)
@@ -198,7 +325,7 @@ fn jparse_value(mut p JParser) !JVal {
 			}
 			if p.s[p.pos] == `}` {
 				p.pos++
-				return JVal{kind: 6, obj: obj}
+				return JObj{obj}
 			}
 			if p.s[p.pos] != `,` {
 				return error('expected comma')
@@ -212,7 +339,7 @@ fn jparse_value(mut p JParser) !JVal {
 		jskip_ws(mut p)
 		if p.pos < p.s.len && p.s[p.pos] == `]` {
 			p.pos++
-			return JVal{kind: 5, arr: arr}
+			return JArr{arr}
 		}
 		for {
 			arr << jparse_value(mut p)!
@@ -222,7 +349,7 @@ fn jparse_value(mut p JParser) !JVal {
 			}
 			if p.s[p.pos] == `]` {
 				p.pos++
-				return JVal{kind: 5, arr: arr}
+				return JArr{arr}
 			}
 			if p.s[p.pos] != `,` {
 				return error('expected comma')
@@ -231,19 +358,19 @@ fn jparse_value(mut p JParser) !JVal {
 		}
 	}
 	if c == `"` {
-		return JVal{kind: 4, str: jparse_string(mut p)!}
+		return JStr{jparse_string(mut p)!}
 	}
 	if p.s[p.pos..].starts_with('true') {
 		p.pos += 4
-		return JVal{kind: 2}
+		return JBool{true}
 	}
 	if p.s[p.pos..].starts_with('false') {
 		p.pos += 5
-		return JVal{kind: 1}
+		return JBool{false}
 	}
 	if p.s[p.pos..].starts_with('null') {
 		p.pos += 4
-		return JVal{kind: 0}
+		return JNull{}
 	}
 	if c == `-` || (c >= `0` && c <= `9`) {
 		start := p.pos
@@ -268,7 +395,7 @@ fn jparse_value(mut p JParser) !JVal {
 				p.pos++
 			}
 		}
-		return JVal{kind: 3, num: p.s[start..p.pos]}
+		return JNum{p.s[start..p.pos]}
 	}
 	return error('unexpected character')
 }
@@ -349,34 +476,32 @@ pub fn jquote(s string, escape_html bool) string {
 }
 
 // canonical re-serializes a parsed value preserving object key order and
-// integer precision, like Go's CanonicalJSON.
+// integer precision, like Go's CanonicalJSON. The match is exhaustive over
+// every JSON shape.
 pub fn (v JVal) canonical(escape_html bool) string {
-	match v.kind {
-		0 {
+	match v {
+		JNull {
 			return 'null'
 		}
-		1 {
-			return 'false'
+		JBool {
+			return if v.value { 'true' } else { 'false' }
 		}
-		2 {
-			return 'true'
+		JNum {
+			return v.literal
 		}
-		3 {
-			return v.num
+		JStr {
+			return jquote(v.text, escape_html)
 		}
-		4 {
-			return jquote(v.str, escape_html)
-		}
-		5 {
-			mut parts := []string{cap: v.arr.len}
-			for x in v.arr {
+		JArr {
+			mut parts := []string{cap: v.items.len}
+			for x in v.items {
 				parts << x.canonical(escape_html)
 			}
 			return '[' + parts.join(',') + ']'
 		}
-		else {
-			mut parts := []string{cap: v.obj.len}
-			for p in v.obj {
+		JObj {
+			mut parts := []string{cap: v.fields.len}
+			for p in v.fields {
 				parts << jquote(p.k, escape_html) + ':' + p.v.canonical(escape_html)
 			}
 			return '{' + parts.join(',') + '}'

@@ -135,7 +135,9 @@ pub fn new_vapid(subject string, public string, private string) !Vapid {
 	pub_raw := push_decode64(public)!
 	peer := p256_pub(pub_raw)!
 	expect := p256_mul(d, p256_base(), p256_p())
-	if !big_eq(expect.x, peer.x) || !big_eq(expect.y, peer.y) {
+	ex, ey := expect.xy()
+	px, py := peer.xy()
+	if !big_eq(ex, px) || !big_eq(ey, py) {
 		return error('VAPID keys do not match')
 	}
 	return Vapid{subject, scalar, p256_pub_bytes(expect)}

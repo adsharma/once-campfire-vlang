@@ -140,28 +140,28 @@ fn og_tdata(path string) string {
 
 fn og_str(v rails.JVal, key string) string {
 	val := v.get(key)
-	assert val.kind == 4, 'missing string ${key}'
-	return val.str
+	assert val.is_str(), 'missing string ${key}'
+	return val.str()
 }
 
 fn og_route(r rails.JVal) OgRoute {
 	mut headers := [][]string{}
-	for h in r.get('headers').arr {
-		headers << [h.arr[0].str, h.arr[1].str]
+	for h in r.get('headers').arr() {
+		headers << [h.arr()[0].str(), h.arr()[1].str()]
 	}
 	mut body := []u8{}
 	bval := r.get('body')
-	if bval.kind == 4 {
-		body = bval.str.bytes()
-	} else if bval.kind == 0 {
+	if bval.is_str() {
+		body = bval.str().bytes()
+	} else if bval.is_null() {
 		b64 := r.get('body_b64')
-		if b64.kind == 4 {
-			body = base64.decode(b64.str)
+		if b64.is_str() {
+			body = base64.decode(b64.str())
 		}
 		rep := r.get('body_repeat')
-		if rep.kind == 5 && rep.arr.len == 2 {
-			unit := rep.arr[0].str
-			count := int(rep.arr[1].num.int())
+		if rep.is_arr() && rep.arr().len == 2 {
+			unit := rep.arr()[0].str()
+			count := int(rep.arr()[1].num().int())
 			mut grown := []u8{}
 			for _ in 0 .. count {
 				grown << unit.bytes()
@@ -170,8 +170,8 @@ fn og_route(r rails.JVal) OgRoute {
 		}
 	}
 	pad := r.get('pad_to')
-	if pad.kind == 3 {
-		want := int(pad.num.int())
+	if pad.is_num() {
+		want := int(pad.num().int())
 		for body.len < want {
 			body << ` `
 		}
@@ -180,62 +180,93 @@ fn og_route(r rails.JVal) OgRoute {
 		method:  og_str(r, 'method')
 		host:    og_str(r, 'host')
 		path:    og_str(r, 'path')
-		status:  int(r.get('status').num.int())
+		status:  int(r.get('status').num().int())
 		headers: headers
 		body:    body
-		gzip:    r.get('gzip').kind == 2
-		chunked: r.get('chunked').kind == 2
+		gzip:    r.get('gzip').is_bool_true()
+		chunked: r.get('chunked').is_bool_true()
 	}
 }
 
+// jval_equal compares JSON values structurally, ignoring object key order
+// like Go's reflect.DeepEqual over decoded maps. The match is exhaustive.
 fn jval_equal(a rails.JVal, b rails.JVal) bool {
-	if a.kind != b.kind {
-		return false
-	}
-	match a.kind {
-		0 {
-			return true
+	match a {
+		rails.JNull {
+			return b is rails.JNull
 		}
-		1, 2 {
-			return true
-		}
-		3 {
-			return a.num == b.num
-		}
-		4 {
-			return a.str == b.str
-		}
-		5 {
-			if a.arr.len != b.arr.len {
+		rails.JBool {
+		match b {
+			rails.JBool {
+				return a.value == b.value
+			}
+			else {
 				return false
 			}
-			for i, x in a.arr {
-				if !jval_equal(x, b.arr[i]) {
+		}
+		}
+		rails.JNum {
+		match b {
+			rails.JNum {
+				return a.literal == b.literal
+			}
+			else {
+				return false
+			}
+		}
+		}
+		rails.JStr {
+		match b {
+			rails.JStr {
+				return a.text == b.text
+			}
+			else {
+				return false
+			}
+		}
+		}
+		rails.JArr {
+		match b {
+			rails.JArr {
+				if a.items.len != b.items.len {
 					return false
 				}
-			}
-			return true
-		}
-		6 {
-			if a.obj.len != b.obj.len {
-				return false
-			}
-			for p in a.obj {
-				mut og_found := false
-				for q in b.obj {
-					if p.k == q.k && jval_equal(p.v, q.v) {
-						og_found = true
-						break
+				for i, x in a.items {
+					if !jval_equal(x, b.items[i]) {
+						return false
 					}
 				}
-				if !og_found {
+				return true
+			}
+			else {
+				return false
+			}
+		}
+		}
+		rails.JObj {
+		match b {
+			rails.JObj {
+				if a.fields.len != b.fields.len {
 					return false
 				}
+				for p in a.fields {
+					mut og_found := false
+					for q in b.fields {
+						if p.k == q.k && jval_equal(p.v, q.v) {
+							og_found = true
+							break
+						}
+					}
+					if !og_found {
+						return false
+					}
+				}
+				return true
 			}
-			return true
+			else {
+				return false
+			}
 		}
-		else {
-			return false
 		}
 	}
 }
@@ -283,21 +314,21 @@ fn test_opengraph_oracle() {
 	corpus := rails.jparse(corpus_raw) or { panic('parse cases: ${err}') }
 	expected := rails.jparse(exp_raw) or { panic('parse expected: ${err}') }
 	cases := corpus.get('cases')
-	assert cases.kind == 5 && expected.kind == 5, 'oracle shape'
-	assert cases.arr.len == expected.arr.len, 'oracle length'
-	for i, c in cases.arr {
-		want := expected.arr[i]
+	assert cases.is_arr() && expected.is_arr(), 'oracle shape'
+	assert cases.arr().len == expected.arr().len, 'oracle length'
+	for i, c in cases.arr() {
+		want := expected.arr()[i]
 		name := og_str(c, 'name')
 		assert og_str(want, 'name') == name, 'case order'
 		url := og_str(c, 'url')
 		// Fresh resolver + hook per case, like Go's per-case oracleDNS.
 		mut hosts := map[string][]string{}
-		for k in corpus.get('hosts').obj {
+		for k in corpus.get('hosts').obj() {
 			mut answers := []string{}
-			for ans in k.v.arr {
+			for ans in k.v.arr() {
 				mut ips := []string{}
-				for ip in ans.arr {
-					ips << ip.str
+				for ip in ans.arr() {
+					ips << ip.str()
 				}
 				answers << ips.join(',')
 			}
@@ -305,7 +336,7 @@ fn test_opengraph_oracle() {
 		}
 		mut resolver, state := og_new_fake_resolver(hosts)
 		mut st := &OgState{}
-		for r in corpus.get('routes').arr {
+		for r in corpus.get('routes').arr() {
 			st.routes << og_route(r)
 		}
 		unfurler := Unfurler{
@@ -318,22 +349,27 @@ fn test_opengraph_oracle() {
 		}
 		body := unfurler.unfurl(url) or {
 			status := 500
-			assert want.get('response').get('status').num.int() == status.str().int(), '${name}: error status ${err}'
+			assert want.get('response').get('status').num().int() == status.str().int(), '${name}: error status ${err}'
 			og_assert_lookups(name, want, state)
 			continue
 		}
 		og_assert_lookups(name, want, state)
 		og_assert_requests(name, want, st.reqs)
-		if body.len == 0 {
-			assert want.get('response').get('status').num.int() == 204, '${name}: empty status'
-			continue
+		// The body is a sum type: no preview, or a JSON preview document.
+		match body {
+			NoPreview {
+				assert want.get('response').get('status').num().int() == 204, '${name}: empty status'
+				continue
+			}
+			Preview {
+				assert want.get('response').get('status').num().int() == 200, '${name}: body status'
+				got := rails.jparse(body.json.bytestr()) or { panic('${name}: unfurl json: ${err}') }
+				want_body := rails.jparse(want.get('response').get('body').str()) or {
+					panic('${name}: want json: ${err}')
+				}
+				assert jval_equal(got, want_body), '${name}: body ${body.json.bytestr()}'
+			}
 		}
-		assert want.get('response').get('status').num.int() == 200, '${name}: body status'
-		got := rails.jparse(body.bytestr()) or { panic('${name}: unfurl json: ${err}') }
-		want_body := rails.jparse(want.get('response').get('body').str) or {
-			panic('${name}: want json: ${err}')
-		}
-		assert jval_equal(got, want_body), '${name}: body ${body.bytestr()}'
 	}
 }
 
@@ -342,8 +378,8 @@ fn og_assert_lookups(name string, want rails.JVal, state &OgFakeState) {
 	// guard. Lookup counts/order are not asserted -- resolution accounting
 	// for redirect chains and rejected probes differs between the Go port
 	// and the Rails-recorded oracle in dimensions Go's suite never checks.
-	for l in want.get('lookups').arr {
-		assert l.str in state.log, '${name}: missing lookup ${l.str} in ${state.log}'
+	for l in want.get('lookups').arr() {
+		assert l.str() in state.log, '${name}: missing lookup ${l.str()} in ${state.log}'
 	}
 }
 
@@ -353,19 +389,19 @@ fn og_assert_requests(name string, want rails.JVal, reqs []OgReq) {
 	// URL, while the Rails-recorded oracle skips probes like the svg case.
 	want_reqs := want.get('requests')
 	mut at := 0
-	for i in 0 .. want_reqs.arr.len {
-		w := want_reqs.arr[i]
+	for i in 0 .. want_reqs.arr().len {
+		w := want_reqs.arr()[i]
 		mut found := false
 		for at < reqs.len {
 			r := reqs[at]
 			at++
-			if r.method == w.arr[0].str && r.host == w.arr[1].str && r.request_uri == w.arr[2].str
-				&& r.accept == w.arr[3].str && r.accept_encoding == w.arr[4].str
-				&& r.user_agent == w.arr[5].str {
+			if r.method == w.arr()[0].str() && r.host == w.arr()[1].str() && r.request_uri == w.arr()[2].str()
+				&& r.accept == w.arr()[3].str() && r.accept_encoding == w.arr()[4].str()
+				&& r.user_agent == w.arr()[5].str() {
 				found = true
 				break
 			}
 		}
-		assert found, '${name}: missing request ${w.arr[0].str} ${w.arr[1].str}${w.arr[2].str}'
+		assert found, '${name}: missing request ${w.arr()[0].str()} ${w.arr()[1].str()}${w.arr()[2].str()}'
 	}
 }

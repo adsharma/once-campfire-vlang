@@ -66,10 +66,14 @@ fn same_json_text(want_raw string, got string) bool {
 		return got == ''
 	}
 	w := rails.jparse(want_raw) or { return false }
-	if w.kind != 4 {
-		return false
+	match w {
+		rails.JStr {
+			return w.text == got
+		}
+		else {
+			return false
+		}
 	}
-	return w.str == got
 }
 
 fn same_json_ints(want_raw string, got []i64) bool {
@@ -77,18 +81,29 @@ fn same_json_ints(want_raw string, got []i64) bool {
 		return got.len == 0
 	}
 	w := rails.jparse(want_raw) or { return false }
-	if w.kind != 5 {
-		return false
-	}
-	if w.arr.len != got.len {
-		return false
-	}
-	for i, v in w.arr {
-		if v.kind != 3 || v.num.i64() != got[i] {
+	match w {
+		rails.JArr {
+			if w.items.len != got.len {
+				return false
+			}
+			for i, v in w.items {
+				match v {
+					rails.JNum {
+						if v.literal.i64() != got[i] {
+							return false
+						}
+					}
+					else {
+						return false
+					}
+				}
+			}
+			return true
+		}
+		else {
 			return false
 		}
 	}
-	return true
 }
 
 fn test_rust_oracle() {

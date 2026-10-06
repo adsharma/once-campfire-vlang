@@ -40,12 +40,12 @@ fn err_invalid() RailsError {
 // Secrets are derived once at boot, as in reference/crates/rails_compat/src/cookies.rs.
 // Rails derives with SHA256 but signs cookies with SHA1.
 pub struct Secrets {
-	secret   string
-	signing  []u8
+	secret      string
+	signing     []u8
 	signed_ids  []u8
 	signed_gids []u8
-	streams  []u8
-	aead     &aes.AesGcm
+	streams     []u8
+	aead        &aes.AesGcm
 }
 
 pub fn derive_key(secret string, salt string, length int) []u8 {
@@ -75,7 +75,8 @@ fn encode_value(inner_json string) string {
 	mut i := 0
 	for i < bs.len {
 		if bs[i] == `\\` && i + 1 < bs.len {
-			if i + 5 < bs.len && ((bs[i..i + 6].bytestr() == '\\u2028') || (bs[i..i + 6].bytestr() == '\\u2029')) {
+			if i + 5 < bs.len && (bs[i..i + 6].bytestr() == '\\u2028'
+				|| bs[i..i + 6].bytestr() == '\\u2029') {
 				if bs[i + 5] == `8` {
 					out << [u8(0xe2), 0x80, 0xa8]
 				} else {
@@ -169,27 +170,27 @@ fn unpack(data []u8, name string, now time.Time, now_ms i64) !string {
 	if data.bytestr().starts_with('{"_rails":{"message":') {
 		outer := jparse(data.bytestr()) or { return err_invalid() }
 		meta := outer.get('_rails')
-		if meta.kind != 6 {
+		if !meta.is_obj() {
 			return err_invalid()
 		}
 		msg := meta.get('message')
-		if msg.kind != 4 {
+		if !msg.is_str() {
 			return err_invalid()
 		}
 		pur := meta.get('pur')
-		if pur.kind == 4 && pur.str != '' && pur.str != 'cookie.' + name {
+		if pur.is_str() && pur.str() != '' && pur.str() != 'cookie.' + name {
 			return err_invalid()
 		}
 		exp := meta.get('exp')
-		if exp.kind == 4 {
-			expiry := parse_exp(exp.str) or { return err_invalid() }
+		if exp.is_str() {
+			expiry := parse_exp(exp.str()) or { return err_invalid() }
 			if now_ms >= expiry {
 				return err_invalid()
 			}
-		} else if exp.kind != 0 {
+		} else if !exp.is_null() {
 			return err_invalid()
 		}
-		payload = decode64(msg.str) or { return err_invalid() }
+		payload = decode64(msg.str()) or { return err_invalid() }
 	}
 	// Pre-metadata JSON cookies are accepted; Marshal is deliberately never decoded.
 	jparse(payload.bytestr()) or { return err_invalid() }
@@ -213,7 +214,8 @@ fn format_exp(t time.Time) string {
 	u := t
 	ms := u.nanosecond / 1000000
 	return pad_n(u.year, 4) + '-' + pad_n(u.month, 2) + '-' + pad_n(u.day, 2) + 'T' +
-		pad_n(u.hour, 2) + ':' + pad_n(u.minute, 2) + ':' + pad_n(u.second, 2) + '.' + pad_n(ms, 3) + 'Z'
+		pad_n(u.hour, 2) + ':' + pad_n(u.minute, 2) + ':' + pad_n(u.second, 2) + '.' +
+		pad_n(ms, 3) + 'Z'
 }
 
 fn parse_exp(s string) !i64 {
@@ -324,7 +326,8 @@ pub fn escape_cookie(s string) string {
 	mut out := []u8{cap: s.len}
 	hex_digits := '0123456789ABCDEF'
 	for c in s.bytes() {
-		if (c >= `A` && c <= `Z`) || (c >= `a` && c <= `z`) || (c >= `0` && c <= `9`) || c == `-` || c == `_` || c == `.` || c == `*` {
+		if (c >= `A` && c <= `Z`) || (c >= `a` && c <= `z`) || (c >= `0` && c <= `9`)
+			|| c == `-` || c == `_` || c == `.` || c == `*` {
 			out << c
 		} else if c == ` ` {
 			out << `+`

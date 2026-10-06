@@ -63,43 +63,43 @@ fn wh_expected() (rails.JVal, rails.JVal) {
 
 fn wh_jstr(v rails.JVal, key string) string {
 	val := v.get(key)
-	assert val.kind == 4, 'missing string ${key}'
-	return val.str
+	assert val.is_str(), 'missing string ${key}'
+	return val.str()
 }
 
 fn test_webhook_oracle() {
 	cases, expected := wh_expected()
-	assert cases.kind == 5 && expected.kind == 5, 'oracle shape'
-	assert cases.arr.len == expected.arr.len, 'oracle length'
-	for i, c in cases.arr {
-		want := expected.arr[i]
+	assert cases.is_arr() && expected.is_arr(), 'oracle shape'
+	assert cases.arr().len == expected.arr().len, 'oracle length'
+	for i, c in cases.arr() {
+		want := expected.arr()[i]
 		name := wh_jstr(c, 'name')
 		assert wh_jstr(want, 'name') == name, 'case order'
-		if c.get('url').kind == 4 && c.get('url').str != '' {
+		if c.get('url').is_str() && c.get('url').str() != '' {
 			// The refused case uses a real connection failure below.
 			continue
 		}
-		status := int(c.get('status').num.int())
+		status := int(c.get('status').num().int())
 		mut headers := [][]string{}
-		for h in c.get('headers').arr {
-			headers << [h.arr[0].str, h.arr[1].str]
+		for h in c.get('headers').arr() {
+			headers << [h.arr()[0].str(), h.arr()[1].str()]
 		}
 		mut body := []u8{}
 		bval := c.get('body')
-		if bval.kind == 4 {
-			body = bval.str.bytes()
+		if bval.is_str() {
+			body = bval.str().bytes()
 		} else {
 			b64 := c.get('body_b64')
-			assert b64.kind == 4, '${name}: body shape'
-			body = base64.decode(b64.str)
+			assert b64.is_str(), '${name}: body shape'
+			body = base64.decode(b64.str())
 		}
-		if c.get('gzip').kind == 2 {
+		if c.get('gzip').is_bool_true() {
 			body = gzip.compress(body) or { panic('${name}: gzip: ${err}') }
 			headers << ['Content-Encoding', 'gzip']
 		}
 		mut st := &WhState{
 			raw:   wh_raw_response(status, headers, body)
-			delay: c.get('delay').kind == 3
+			delay: c.get('delay').is_num()
 		}
 		client := WebhookClient{
 			client: HttpClient{guarded: false, timeout_ms: 7000, transport: new_wh_hook(mut st)}
@@ -108,55 +108,62 @@ fn test_webhook_oracle() {
 		reply := client.deliver(endpoint, '{"message":"hi"}'.bytes()) or {
 			err_msg := err.msg()
 			want_err := want.get('error')
-			assert want_err.kind == 4, '${name}: unexpected error ${err_msg}'
-			assert want_err.str == 'Mime::Type::InvalidMimeType', '${name}: error kind'
+			assert want_err.is_str(), '${name}: unexpected error ${err_msg}'
+			assert want_err.str() == 'Mime::Type::InvalidMimeType', '${name}: error kind'
 			assert err_msg.contains('MIME'), '${name}: error text ${err_msg}'
 			wh_assert_request(name, want, st.reqs, endpoint)
 			continue
 		}
 		wh_assert_request(name, want, st.reqs, endpoint)
-		want_status := want.get('status')
-		if want_status.kind == 0 {
-			// Timeout case: status null, text reply present.
-			assert reply.status == 0, '${name}: timeout status'
-		} else {
-			assert reply.status == int(want_status.num.int()), '${name}: status'
-		}
-		wr := want.get('reply')
-		if wr.kind == 0 {
-			assert reply.text == none, '${name}: unexpected text'
-			assert reply.filename == '', '${name}: unexpected attachment'
+		// The reply is a sum type, so each oracle shape matches exactly one
+		// variant exhaustively.
+		match reply {
+			BareReply {
+				assert want.get('status').is_num(), '${name}: bare status'
+			assert reply.status == int(want.get('status').num().int()), '${name}: bare status value'
+			assert want.get('reply').is_null(), '${name}: unexpected bare reply'
 			continue
+			}
+			TextReply {
+				if want.get('status').is_null() {
+					// Timeout case: null status, timeout text.
+				assert reply.status == 0, '${name}: timeout status'
+				assert reply.text == 'Failed to respond within 7 seconds', '${name}: timeout text'
+				continue
+				}
+				assert reply.status == int(want.get('status').num().int()), '${name}: status'
+				t64 := want.get('reply').get('text_b64')
+				assert t64.is_str(), '${name}: text shape'
+				raw_text := base64.decode(t64.str())
+				assert reply.text == to_valid_utf8(raw_text.bytestr()), '${name}: text'
+				continue
+			}
+			AttachmentReply {
+				assert reply.status == int(want.get('status').num().int()), '${name}: status'
+				att := want.get('reply').get('attachment')
+				raw_att := base64.decode(att.get('body_b64').str())
+				assert reply.filename == att.get('filename').str(), '${name}: filename'
+				assert reply.content_type == att.get('content_type').str(), '${name}: content type'
+				assert reply.data == raw_att, '${name}: attachment bytes'
+			}
 		}
-		t64 := wr.get('text_b64')
-		if t64.kind == 4 {
-			raw_text := base64.decode(t64.str)
-			text := reply.text or { panic('${name}: missing text') }
-			assert text == to_valid_utf8(raw_text.bytestr()), '${name}: text'
-			continue
-		}
-		att := wr.get('attachment')
-		raw_att := base64.decode(att.get('body_b64').str)
-		assert reply.filename == att.get('filename').str, '${name}: filename'
-		assert reply.content_type == att.get('content_type').str, '${name}: content type'
-		assert reply.attachment == raw_att, '${name}: attachment bytes'
 	}
 }
 
 fn wh_assert_request(name string, want rails.JVal, reqs []WhReq, endpoint string) {
 	want_reqs := want.get('requests')
-	assert want_reqs.kind == 5, '${name}: requests shape'
-	assert reqs.len == want_reqs.arr.len, '${name}: request count'
+	assert want_reqs.is_arr(), '${name}: requests shape'
+	assert reqs.len == want_reqs.arr().len, '${name}: request count'
 	for i, r in reqs {
-		w := want_reqs.arr[i]
+		w := want_reqs.arr()[i]
 		assert r.method == 'POST', '${name}: method'
 		u := urllib.parse(r.url) or { panic('${name}: url') }
 		assert u.hostname() == '127.0.0.1', '${name}: host'
 		assert u.path == '/${name}', '${name}: path'
-		assert w.get('request_line').str == 'POST /${name} HTTP/1.1', '${name}: request line'
+		assert w.get('request_line').str() == 'POST /${name} HTTP/1.1', '${name}: request line'
 		mut want_headers := map[string]string{}
-		for h in w.get('headers').arr {
-			want_headers[h.arr[0].str.to_lower()] = h.arr[1].str
+		for h in w.get('headers').arr() {
+			want_headers[h.arr()[0].str().to_lower()] = h.arr()[1].str()
 		}
 		mut got_lower := map[string]string{}
 		for k, v in r.headers {
@@ -175,7 +182,7 @@ fn wh_assert_request(name string, want rails.JVal, reqs []WhReq, endpoint string
 			}
 			assert got_lower[k] == v, '${name}: missing header ${k}'
 		}
-		assert r.body.bytestr() == w.get('body').str, '${name}: request body'
+		assert r.body.bytestr() == w.get('body').str(), '${name}: request body'
 		_ = endpoint
 	}
 }
@@ -253,8 +260,14 @@ fn test_webhook_timeout() {
 	reply := client.deliver('http://127.0.0.1:${port}/hang', '{}'.bytes()) or {
 		panic('expected timeout reply, got error: ${err}')
 	}
-	text := reply.text or { panic('missing timeout text') }
-	assert text == 'Failed to respond within 7 seconds', 'timeout text'
+	match reply {
+		TextReply {
+			assert reply.text == 'Failed to respond within 7 seconds', 'timeout text'
+		}
+		else {
+			assert false, 'expected timeout text reply'
+		}
+	}
 }
 
 fn serve_hang(mut ln &net.TcpListener) {

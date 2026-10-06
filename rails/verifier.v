@@ -104,40 +104,40 @@ fn (v Verifier) decode(data []u8, purpose string, now_ms i64) !string {
 		return jquote(s, v.html)
 	}
 	outer := jparse(data.bytestr()) or { return err_purpose(purpose) }
-	if outer.kind == 6 {
+	if outer.is_obj() {
 		rails_meta := outer.get('_rails')
-		if rails_meta.kind == 6 {
+		if rails_meta.is_obj() {
 			meta_data := rails_meta.get('data')
 			meta_msg := rails_meta.get('message')
 			meta_exp := rails_meta.get('exp')
 			meta_pur := rails_meta.get('pur')
-			if meta_exp.kind == 4 {
-				expiry := parse_exp(meta_exp.str) or { return err_invalid() }
+			if meta_exp.is_str() {
+				expiry := parse_exp(meta_exp.str()) or { return err_invalid() }
 				if now_ms >= expiry {
 					return err_expired()
 				}
-			} else if meta_exp.kind != 0 {
+			} else if !meta_exp.is_null() {
 				return err_invalid()
 			}
 			mut actual := ''
-			if meta_pur.kind == 4 {
-				actual = meta_pur.str
-			} else if meta_pur.kind == 3 {
-				actual = meta_pur.num
-			} else if meta_pur.kind != 0 {
+			if meta_pur.is_str() {
+				actual = meta_pur.str()
+			} else if meta_pur.is_num() {
+				actual = meta_pur.num()
+			} else if !meta_pur.is_null() {
 				actual = meta_pur.canonical(v.html)
 			}
 			if actual != purpose {
 				return err_purpose(purpose)
 			}
-			if meta_msg.kind == 4 {
-				decoded := decode64(meta_msg.str) or { return err_invalid() }
+			if meta_msg.is_str() {
+				decoded := decode64(meta_msg.str()) or { return err_invalid() }
 				return v.decode(decoded, '', now_ms)
 			}
-			if meta_data.kind == 0 && !has_key(rails_meta, 'data') {
+			if meta_data.is_null() && !has_key(rails_meta, 'data') {
 				return 'null'
 			}
-			if meta_data.kind == 0 {
+			if meta_data.is_null() {
 				return 'null'
 			}
 			return meta_data.canonical(v.html)
@@ -150,8 +150,8 @@ fn (v Verifier) decode(data []u8, purpose string, now_ms i64) !string {
 }
 
 fn has_key(v JVal, key string) bool {
-	if v.kind == 6 {
-		for p in v.obj {
+	if v.is_obj() {
+		for p in v.obj() {
 			if p.k == key {
 				return true
 			}
@@ -268,10 +268,10 @@ pub fn (s &Secrets) verify_id(model_name string, message string, purpose string,
 	mut value := raw
 	if raw.starts_with('"') {
 		parsed := jparse(raw) or { return err_invalid() }
-		if parsed.kind != 4 {
+		if !parsed.is_str() {
 			return err_invalid()
 		}
-		value = parsed.str
+		value = parsed.str()
 	}
 	id := value.trim_space().i64()
 	if id == 0 && value.trim_space() != '0' {
@@ -292,31 +292,31 @@ pub fn (s &Secrets) verify_sgid(message string, purpose string, now time.Time) !
 		// Legacy {gid,purpose,expires_at} envelope.
 		legacy := v.verify_raw(message, '', now) or { return err }
 		parsed := jparse(legacy) or { return err_invalid() }
-		if parsed.kind != 6 {
+		if !parsed.is_obj() {
 			return err_invalid()
 		}
 		pur := parsed.get('purpose')
-		if pur.kind != 4 || pur.str != purpose {
+		if !pur.is_str() || pur.str() != purpose {
 			return err_purpose(purpose)
 		}
 		exp := parsed.get('expires_at')
-		if exp.kind == 4 {
-			expiry := parse_exp(exp.str) or { return err_invalid() }
+		if exp.is_str() {
+			expiry := parse_exp(exp.str()) or { return err_invalid() }
 			if now_ms(now) >= expiry {
 				return err_expired()
 			}
 		}
 		gid := parsed.get('gid')
-		if gid.kind != 4 {
+		if !gid.is_str() {
 			return err_invalid()
 		}
-		return gid.str
+		return gid.str()
 	}
 	parsed := jparse(raw) or { return err_invalid() }
-	if parsed.kind != 4 {
+	if !parsed.is_str() {
 		return err_invalid()
 	}
-	return parsed.str
+	return parsed.str()
 }
 
 // unverified_user_gid is the deliberately User-only exception in
@@ -330,20 +330,20 @@ pub fn unverified_user_gid(sgid string) !string {
 	raw := decode64(payload) or { return err_invalid() }
 	// Go unmarshals into a struct: arrays and scalars fail, null decodes empty.
 	outer := jparse(raw.bytestr()) or { return err_invalid() }
-	if outer.kind != 6 && outer.kind != 0 {
+	if !outer.is_obj() && !outer.is_null() {
 		return err_invalid()
 	}
 	mut gid := ''
-	if outer.kind == 6 {
+	if outer.is_obj() {
 		rails_meta := outer.get('_rails')
-		if rails_meta.kind == 6 {
+		if rails_meta.is_obj() {
 			data := rails_meta.get('data')
-			if data.kind == 4 {
-				gid = data.str
-			} else if data.kind == 0 {
+			if data.is_str() {
+				gid = data.str()
+			} else if data.is_null() {
 				msg := rails_meta.get('message')
-				if msg.kind == 4 {
-					decoded := decode64(msg.str) or { return err_invalid() }
+				if msg.is_str() {
+					decoded := decode64(msg.str()) or { return err_invalid() }
 					gid = extract_gid(decoded.bytestr())
 				}
 			}
@@ -355,7 +355,8 @@ pub fn unverified_user_gid(sgid string) !string {
 	}
 	gid = gid.split('?')[0]
 	parts := gid.split('/')
-	if parts.len != 5 || parts[0] != 'gid:' || parts[2] == '' || parts[3] != 'User' || parts[4] == '' {
+	if parts.len != 5 || parts[0] != 'gid:' || parts[2] == '' || parts[3] != 'User'
+		|| parts[4] == '' {
 		return ''
 	}
 	return 'gid://campfire/User/' + parts[4]
@@ -366,7 +367,8 @@ fn extract_gid(s string) string {
 	mut end := idx
 	for end < s.len {
 		c := s[end]
-		if (c >= `a` && c <= `z`) || (c >= `A` && c <= `Z`) || (c >= `0` && c <= `9`) || c == `:` || c == `/` || c == `.` || c == `-` || c == `_` {
+		if (c >= `a` && c <= `z`) || (c >= `A` && c <= `Z`) || (c >= `0` && c <= `9`)
+			|| c == `:` || c == `/` || c == `.` || c == `-` || c == `_` {
 			end++
 		} else {
 			break
