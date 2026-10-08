@@ -22,8 +22,9 @@ pub mut:
 	user          UserForm
 }
 
+// welcome redirects to first run, login, or the first room.
 pub fn welcome(mut db database.DB, r Req) Resp {
-	if account_row(mut db, ) == none {
+	if account_row(mut db) == none {
 		return redirect_to('/first_run')
 	}
 	uid := actor_or_login(r)
@@ -32,9 +33,7 @@ pub fn welcome(mut db database.DB, r Req) Resp {
 	}
 	first := db.query_int('SELECT r.id FROM rooms r JOIN memberships m ON m.room_id=r.id WHERE m.user_id=? ORDER BY r.created_at LIMIT 1', [
 		uid.str(),
-	]) or {
-		0
-	}
+	]) or { 0 }
 	if first != 0 {
 		return redirect_to('/rooms/' + first.str())
 	}
@@ -46,12 +45,16 @@ pub mut:
 	welcome bool
 }
 
+// new_welcome builds the welcome body.
 pub fn new_welcome() WelcomeBody {
-	return WelcomeBody{welcome: true}
+	return WelcomeBody{
+		welcome: true
+	}
 }
 
+// first_run serves first run and creates the account plus admin.
 pub fn first_run(mut db database.DB, r Req) Resp {
-	if account_row(mut db, ) != none {
+	if account_row(mut db) != none {
 		return redirect_to('/')
 	}
 	if r.method == 'GET' {
@@ -62,8 +65,7 @@ pub fn first_run(mut db database.DB, r Req) Resp {
 		return err_resp('name, email and password required', 422)
 	}
 	now := now_epoch()
-	run := first_run_create(mut db, payload.name, payload.email_address, payload.password,
-		now) or {
+	run := first_run_create(mut db, payload.name, payload.email_address, payload.password, now) or {
 		return err_resp('unprocessable', 422)
 	}
 	token := issue_session(mut db, run.user.id, r.remote_addr, r.user_agent, now)
@@ -77,8 +79,11 @@ pub mut:
 	first_run bool
 }
 
+// new_first_run builds the first-run body.
 pub fn new_first_run() FirstRunBody {
-	return FirstRunBody{first_run: true}
+	return FirstRunBody{
+		first_run: true
+	}
 }
 
 pub struct UserCreated {
@@ -87,8 +92,12 @@ pub mut:
 	name string
 }
 
+// new_user_created builds the created-user body.
 pub fn new_user_created(id i64, name string) UserCreated {
-	return UserCreated{id: id, name: name}
+	return UserCreated{
+		id:   id
+		name: name
+	}
 }
 
 fn onboard_payload(r &Req) UserForm {
@@ -122,11 +131,10 @@ pub mut:
 	join_code string
 }
 
+// join serves join-by-code and creates the member.
 pub fn join(mut db database.DB, r Req) Resp {
 	code := r.path_args['code'] or { '' }
-	account := account_row(mut db, ) or {
-		return err_resp('not found', 404)
-	}
+	account := account_row(mut db) or { return err_resp('not found', 404) }
 	if account.join_code != code {
 		return err_resp('not found', 404)
 	}
@@ -134,7 +142,7 @@ pub fn join(mut db database.DB, r Req) Resp {
 		return redirect_to('/')
 	}
 	if r.method == 'GET' {
-		return present(JoinBody{join_code: code})
+		return present(JoinBody{ join_code: code })
 	}
 	payload := onboard_payload(r)
 	if payload.name == '' || payload.email_address == '' || payload.password == '' {
@@ -142,9 +150,7 @@ pub fn join(mut db database.DB, r Req) Resp {
 	}
 	now := now_epoch()
 	new_user := create_user(mut db, payload.name, payload.email_address, payload.password,
-		c.role_member, '', now) or {
-		return err_resp('email already taken', 422)
-	}
+		c.role_member, '', now) or { return err_resp('email already taken', 422) }
 	token := issue_session(mut db, new_user.id, r.remote_addr, r.user_agent, now)
 	mut resp := created(new_user_created(new_user.id, new_user.name))
 	set_session_cookie(r.secret_key, mut resp, token)

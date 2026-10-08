@@ -27,6 +27,7 @@ import campfire as c
 // Enum tables (the domain int enums <-> the Rails strings in the database)
 // ---------------------------------------------------------------------------
 
+// room_kind_to_type maps a domain room kind to its Rails type string.
 pub fn room_kind_to_type(kind i64) string {
 	return match kind {
 		c.room_closed { 'Rooms::Closed' }
@@ -35,6 +36,7 @@ pub fn room_kind_to_type(kind i64) string {
 	}
 }
 
+// type_to_kind maps a Rails room type string to its domain kind.
 pub fn type_to_kind(typ string) i64 {
 	return match typ {
 		'Rooms::Closed' { c.room_closed }
@@ -43,10 +45,12 @@ pub fn type_to_kind(typ string) i64 {
 	}
 }
 
+// involvement_to_name maps a domain involvement level to its Rails string.
 pub fn involvement_to_name(involvement i64) string {
 	return c.involvement_name(involvement)
 }
 
+// name_to_involvement maps a Rails involvement string to its domain level.
 pub fn name_to_involvement(name string) i64 {
 	return match name {
 		'invisible' { c.involvement_invisible }
@@ -60,17 +64,17 @@ pub fn name_to_involvement(name string) i64 {
 // Time conversion (epoch seconds <-> Rails datetime(6) text)
 // ---------------------------------------------------------------------------
 
+// to_db_time formats epoch seconds as Rails datetime(6) text in UTC.
 pub fn to_db_time(ts i64) string {
 	return database.stamp(time.unix(ts).as_utc())
 }
 
+// from_db_time parses Rails datetime text (or epoch digits) back to epoch seconds.
 pub fn from_db_time(value string) i64 {
 	if value == '' {
 		return 0
 	}
-	parsed := database.parse_stamp(value) or {
-		return 0
-	}
+	parsed := database.parse_stamp(value) or { return 0 }
 	return parsed.unix()
 }
 
@@ -87,12 +91,12 @@ const extension_sql = [
 	"CREATE TRIGGER IF NOT EXISTS rich_texts_ai AFTER INSERT ON action_text_rich_texts WHEN new.record_type IN ('Message', 'ActionText::RichText') AND new.name = 'body' BEGIN INSERT INTO message_search_index(rowid, body) VALUES (new.record_id, new.body); END",
 	"CREATE TRIGGER IF NOT EXISTS rich_texts_au AFTER UPDATE ON action_text_rich_texts WHEN new.record_type IN ('Message', 'ActionText::RichText') AND new.name = 'body' BEGIN UPDATE message_search_index SET body = new.body WHERE rowid = new.record_id; END",
 	"CREATE TRIGGER IF NOT EXISTS rich_texts_ad AFTER DELETE ON action_text_rich_texts WHEN old.record_type IN ('Message', 'ActionText::RichText') AND old.name = 'body' BEGIN DELETE FROM message_search_index WHERE rowid = old.record_id; END",
-	'CREATE TRIGGER IF NOT EXISTS rich_text_cleanup_ad AFTER DELETE ON messages BEGIN DELETE FROM action_text_rich_texts WHERE record_id = old.id AND name = \'body\' AND record_type IN (\'Message\', \'ActionText::RichText\'); END',
+	"CREATE TRIGGER IF NOT EXISTS rich_text_cleanup_ad AFTER DELETE ON messages BEGIN DELETE FROM action_text_rich_texts WHERE record_id = old.id AND name = 'body' AND record_type IN ('Message', 'ActionText::RichText'); END",
 ]
 
 // create_extensions applies the tables the python port adds on top of the
 // shared Rails schema.
-pub fn create_extensions(mut d database.DB, ) ! {
+pub fn create_extensions(mut d database.DB) ! {
 	for stmt in extension_sql {
 		d.exec_none(stmt, []) or { return err }
 	}
@@ -114,7 +118,7 @@ pub fn load_store(mut d database.DB, s c.Store, password_digest string) !LoadCou
 	for u in s.users {
 		// Rails stores NULL (not "") for absent bot tokens: NULLs do not
 		// conflict in the UNIQUE index, empty strings would.
-		d.exec_none('INSERT INTO users(id,name,email_address,password_digest,bio,bot_token,role,status,created_at,updated_at) VALUES(?,?,NULLIF(?, \'\'),NULLIF(?, \'\'),?,NULLIF(?, \'\'),?,?,?,?)', [
+		d.exec_none("INSERT INTO users(id,name,email_address,password_digest,bio,bot_token,role,status,created_at,updated_at) VALUES(?,?,NULLIF(?, ''),NULLIF(?, ''),?,NULLIF(?, ''),?,?,?,?)", [
 			u.id.str(),
 			u.name,
 			u.email,
@@ -128,7 +132,7 @@ pub fn load_store(mut d database.DB, s c.Store, password_digest string) !LoadCou
 		]) or { return err }
 	}
 	for r in s.rooms {
-		d.exec_none('INSERT INTO rooms(id,name,type,creator_id,created_at,updated_at) VALUES(?,NULLIF(?, \'\'),?,?,?,?)', [
+		d.exec_none("INSERT INTO rooms(id,name,type,creator_id,created_at,updated_at) VALUES(?,NULLIF(?, ''),?,?,?,?)", [
 			r.id.str(),
 			r.name,
 			room_kind_to_type(r.kind),
@@ -138,7 +142,7 @@ pub fn load_store(mut d database.DB, s c.Store, password_digest string) !LoadCou
 		]) or { return err }
 	}
 	for m in s.memberships {
-		d.exec_none('INSERT INTO memberships(id,room_id,user_id,involvement,connections,connected_at,unread_at,created_at,updated_at) VALUES(?,?,?,?,?,NULLIF(?, \'\'),NULLIF(?, \'\'),?,?)', [
+		d.exec_none("INSERT INTO memberships(id,room_id,user_id,involvement,connections,connected_at,unread_at,created_at,updated_at) VALUES(?,?,?,?,?,NULLIF(?, ''),NULLIF(?, ''),?,?)", [
 			m.id.str(),
 			m.room_id.str(),
 			m.user_id.str(),
@@ -227,7 +231,4 @@ pub fn row_str(row sqlite.Row, idx int) string {
 		return ''
 	}
 	return row.vals[idx]
-}
-pub fn row_count(mut d database.DB) i64 {
-	return d.query_int('SELECT count(*) FROM probe', []) or { -1 }
 }

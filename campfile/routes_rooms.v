@@ -12,6 +12,7 @@ pub mut:
 	creator_id        i64
 }
 
+// room_page_handler serves a room page.
 pub fn room_page_handler(mut db database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
@@ -24,6 +25,7 @@ pub fn room_page_handler(mut db database.DB, r Req) Resp {
 	return present(res.value)
 }
 
+// room_messages serves a message window.
 pub fn room_messages(mut db database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
@@ -37,6 +39,7 @@ pub fn room_messages(mut db database.DB, r Req) Resp {
 	return present(res.value)
 }
 
+// post_message posts a message to a room.
 pub fn post_message(mut db database.DB, r Req) Resp {
 	mut payload := PostPayload{}
 	if r.body != '' {

@@ -19,6 +19,7 @@ pub mut:
 	q string
 }
 
+// searches searches and returns recent history.
 pub fn searches(mut db database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
@@ -40,6 +41,7 @@ pub fn searches(mut db database.DB, r Req) Resp {
 	})
 }
 
+// searches_record records a search query.
 pub fn searches_record(mut db database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
@@ -62,11 +64,12 @@ pub fn searches_record(mut db database.DB, r Req) Resp {
 	})
 }
 
+// searches_clear clears search history.
 pub fn searches_clear(mut db database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
 		return login_redirect()
 	}
 	clear_searches(mut db, uid)
-	return present(SearchView{recent: []string{}})
+	return present(SearchView{ recent: []string{} })
 }

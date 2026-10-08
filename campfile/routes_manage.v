@@ -8,7 +8,11 @@ import campfire as c
 import database
 
 fn kinds() map[string]i64 {
-	return {'opens': c.room_open, 'closeds': c.room_closed, 'directs': c.room_direct}
+	return {
+		'opens':   c.room_open
+		'closeds': c.room_closed
+		'directs': c.room_direct
+	}
 }
 
 struct RoomForm {
@@ -48,9 +52,7 @@ fn user_list(mut d database.DB, room_id i64, filt string) []UserEntry {
 	if room_id > 0 {
 		mems := d.query_all('SELECT user_id FROM memberships WHERE room_id=?', [
 			room_id.str(),
-		]) or {
-			return []UserEntry{}
-		}
+		]) or { return []UserEntry{} }
 		mut ids := []i64{}
 		for m in mems {
 			ids << row_i64(m, 0)
@@ -65,13 +67,14 @@ fn user_list(mut d database.DB, room_id i64, filt string) []UserEntry {
 		conds += ' AND lower(name) LIKE ?'
 		params << '%' + filt.to_lower() + '%'
 	}
-	rows := d.query_all('SELECT id,coalesce(name,\'\') FROM users WHERE ' + conds +
-		' ORDER BY lower(name) LIMIT 20', params) or {
-		return []UserEntry{}
-	}
+	rows := d.query_all("SELECT id,coalesce(name,'') FROM users WHERE " + conds +
+		' ORDER BY lower(name) LIMIT 20', params) or { return []UserEntry{} }
 	mut out := []UserEntry{}
 	for r in rows {
-		out << UserEntry{id: row_i64(r, 0), name: row_str(r, 1)}
+		out << UserEntry{
+			id:   row_i64(r, 0)
+			name: row_str(r, 1)
+		}
 	}
 	return out
 }
@@ -83,6 +86,7 @@ pub mut:
 	label string
 }
 
+// room_new_form serves the new-room form data.
 pub fn room_new_form(mut d database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
@@ -107,9 +111,13 @@ pub mut:
 }
 
 fn new_room_form(kind string, members []UserEntry) RoomFormView {
-	return RoomFormView{kind: kind, members: members}
+	return RoomFormView{
+		kind:    kind
+		members: members
+	}
 }
 
+// room_create creates an open, closed or direct room.
 pub fn room_create(mut d database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
@@ -119,11 +127,9 @@ pub fn room_create(mut d database.DB, r Req) Resp {
 	if kind !in kinds() {
 		return err_resp('not found', 404)
 	}
-	me := user(mut d, uid) or {
-		return err_resp('not found', 404)
-	}
+	me := user(mut d, uid) or { return err_resp('not found', 404) }
 	if kind != 'directs' {
-		settings := account_settings(account_row(mut d, ))
+		settings := account_settings(account_row(mut d))
 		if settings.restrict_room_creation_to_administrators && me.role != c.role_admin {
 			return err_resp('forbidden', 403)
 		}
@@ -168,6 +174,7 @@ pub fn room_create(mut d database.DB, r Req) Resp {
 	return created(res.value)
 }
 
+// room_edit_form serves the edit-room form data.
 pub fn room_edit_form(mut d database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
@@ -175,13 +182,11 @@ pub fn room_edit_form(mut d database.DB, r Req) Resp {
 	}
 	kind := r.path_args['kind'] or { '' }
 	rid := int_path_arg(r, 'id')
-	room := room_access(mut d, uid, rid) or {
-		return err_resp('not found', 404)
-	}
+	room := room_access(mut d, uid, rid) or { return err_resp('not found', 404) }
 	if room.typ != wanted_type(kind) {
 		return err_resp('not found', 404)
 	}
-	return present(RoomEditView{id: rid, name: room.name, kind: kind})
+	return present(RoomEditView{ id: rid, name: room.name, kind: kind })
 }
 
 pub struct RoomEditView {
@@ -195,6 +200,7 @@ fn wanted_type(kind string) string {
 	return 'Rooms::' + kind[..kind.len - 1].capitalize()
 }
 
+// room_update renames a room and reconciles members.
 pub fn room_update(mut d database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
@@ -202,15 +208,11 @@ pub fn room_update(mut d database.DB, r Req) Resp {
 	}
 	kind := r.path_args['kind'] or { '' }
 	rid := int_path_arg(r, 'id')
-	room := room_access(mut d, uid, rid) or {
-		return err_resp('not found', 404)
-	}
+	room := room_access(mut d, uid, rid) or { return err_resp('not found', 404) }
 	if room.typ != wanted_type(kind) {
 		return err_resp('not found', 404)
 	}
-	me := user(mut d, uid) or {
-		return err_resp('forbidden', 403)
-	}
+	me := user(mut d, uid) or { return err_resp('forbidden', 403) }
 	if !c.can_administer(me.role, uid, room.creator_id, false) {
 		return err_resp('forbidden', 403)
 	}
@@ -222,9 +224,7 @@ pub fn room_update(mut d database.DB, r Req) Resp {
 		}
 	}
 	revise_room(mut d, room, if name != '' { name } else { room.name }, ids,
-		room.typ == 'Rooms::Open', now_epoch()) or {
-		return err_resp('unprocessable', 422)
-	}
+		room.typ == 'Rooms::Open', now_epoch()) or { return err_resp('unprocessable', 422) }
 	res := room_page(mut d, rid, uid)
 	if !res.ok {
 		return err_resp('not found', 404)
@@ -232,6 +232,7 @@ pub fn room_update(mut d database.DB, r Req) Resp {
 	return present(res.value)
 }
 
+// room_delete_kind deletes a room by kind path.
 pub fn room_delete_kind(mut d database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
@@ -244,6 +245,7 @@ pub fn room_delete_kind(mut d database.DB, r Req) Resp {
 	return destroy_room(mut d, uid, int_path_arg(r, 'id'))
 }
 
+// room_delete deletes a room.
 pub fn room_delete(mut d database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
@@ -253,19 +255,13 @@ pub fn room_delete(mut d database.DB, r Req) Resp {
 }
 
 fn destroy_room(mut d database.DB, uid i64, rid i64) Resp {
-	room := room_access(mut d, uid, rid) or {
-		return err_resp('not found', 404)
-	}
-	me := user(mut d, uid) or {
-		return err_resp('forbidden', 403)
-	}
+	room := room_access(mut d, uid, rid) or { return err_resp('not found', 404) }
+	me := user(mut d, uid) or { return err_resp('forbidden', 403) }
 	if room.typ != 'Rooms::Direct' && !c.can_administer(me.role, uid, room.creator_id, false) {
 		return err_resp('forbidden', 403)
 	}
-	delete_room_cascade(mut d, rid) or {
-		return err_resp('unprocessable', 422)
-	}
-	return present(DeletedItem{deleted: rid})
+	delete_room_cascade(mut d, rid) or { return err_resp('unprocessable', 422) }
+	return present(DeletedItem{ deleted: rid })
 }
 
 pub struct DeletedItem {
@@ -273,6 +269,7 @@ pub mut:
 	deleted i64
 }
 
+// refresh serves new and updated messages since a timestamp.
 pub fn refresh(mut d database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
@@ -287,17 +284,17 @@ pub fn refresh(mut d database.DB, r Req) Resp {
 		since = now_epoch()
 	}
 	stamp := to_db_time(since)
-	room := room_access(mut d, uid, rid) or {
-		return err_resp('not found', 404)
-	}
+	room := room_access(mut d, uid, rid) or { return err_resp('not found', 404) }
 	_ = room
-	new_rows := message_rows(mut d, 'SELECT ' + msg_cols + ' FROM messages WHERE room_id=? AND created_at > ? ORDER BY created_at LIMIT ' +
+	new_rows := message_rows(mut d, 'SELECT ' + msg_cols +
+		' FROM messages WHERE room_id=? AND created_at > ? ORDER BY created_at LIMIT ' +
 		page_size.str(), [rid.str(), stamp])
 	mut new_ids := map[i64]bool{}
 	for m in new_rows {
 		new_ids[m.id] = true
 	}
-	upd_rows := message_rows(mut d, 'SELECT ' + msg_cols + ' FROM messages WHERE room_id=? AND updated_at > ? ORDER BY created_at DESC LIMIT ' +
+	upd_rows := message_rows(mut d, 'SELECT ' + msg_cols +
+		' FROM messages WHERE room_id=? AND updated_at > ? ORDER BY created_at DESC LIMIT ' +
 		page_size.str(), [rid.str(), stamp])
 	mut updated := []MsgRow{}
 	for m in upd_rows {
@@ -318,24 +315,19 @@ pub mut:
 	updated []w.MessageView
 }
 
+// involvement reads or changes a membership notification level.
 pub fn involvement(mut d database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
 		return login_redirect()
 	}
 	rid := int_path_arg(r, 'id')
-	room := room_access(mut d, uid, rid) or {
-		return err_resp('not found', 404)
-	}
-	mem := membership(mut d, rid, uid) or {
-		return err_resp('not found', 404)
-	}
+	room := room_access(mut d, uid, rid) or { return err_resp('not found', 404) }
+	mem := membership(mut d, rid, uid) or { return err_resp('not found', 404) }
 	if r.method == 'PUT' || r.method == 'PATCH' {
 		mut choice := ''
 		if r.body != '' {
-			payload := json.decode(InvolvementPayload, r.body) or {
-				InvolvementPayload{}
-			}
+			payload := json.decode(InvolvementPayload, r.body) or { InvolvementPayload{} }
 			choice = payload.involvement
 		}
 		if choice == '' {
@@ -352,12 +344,10 @@ pub fn involvement(mut d database.DB, r Req) Resp {
 		set_involvement(mut d, rid, uid, choice, now_epoch()) or {
 			return err_resp('unprocessable', 422)
 		}
-		mem2 := membership(mut d, rid, uid) or {
-			return err_resp('not found', 404)
-		}
-		return present(InvolvementView{room_id: rid, involvement: mem2.involvement})
+		mem2 := membership(mut d, rid, uid) or { return err_resp('not found', 404) }
+		return present(InvolvementView{ room_id: rid, involvement: mem2.involvement })
 	}
-	return present(InvolvementView{room_id: rid, involvement: mem.involvement})
+	return present(InvolvementView{ room_id: rid, involvement: mem.involvement })
 }
 
 struct InvolvementPayload {
@@ -371,6 +361,7 @@ pub mut:
 	involvement string
 }
 
+// message_show serves one message.
 pub fn message_show(mut d database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
@@ -381,9 +372,7 @@ pub fn message_show(mut d database.DB, r Req) Resp {
 	if room_access(mut d, uid, rid) == none {
 		return err_resp('not found', 404)
 	}
-	row := message_dict(mut d, mid) or {
-		return err_resp('not found', 404)
-	}
+	row := message_dict(mut d, mid) or { return err_resp('not found', 404) }
 	if row.room_id != rid {
 		return err_resp('not found', 404)
 	}
@@ -401,6 +390,7 @@ pub mut:
 	body string
 }
 
+// message_update edits a message body with authorization.
 pub fn message_update(mut d database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
@@ -411,24 +401,18 @@ pub fn message_update(mut d database.DB, r Req) Resp {
 	if room_access(mut d, uid, rid) == none {
 		return err_resp('not found', 404)
 	}
-	row := message_dict(mut d, mid) or {
-		return err_resp('not found', 404)
-	}
+	row := message_dict(mut d, mid) or { return err_resp('not found', 404) }
 	if row.room_id != rid {
 		return err_resp('not found', 404)
 	}
-	me := user(mut d, uid) or {
-		return err_resp('forbidden', 403)
-	}
+	me := user(mut d, uid) or { return err_resp('forbidden', 403) }
 	if !c.can_administer(me.role, uid, row.creator_id, false) {
 		return err_resp('forbidden', 403)
 	}
 	mut body := ''
 	mut has_body := false
 	if r.body != '' {
-		payload := json.decode(MessageBodyPayload, r.body) or {
-			MessageBodyPayload{}
-		}
+		payload := json.decode(MessageBodyPayload, r.body) or { MessageBodyPayload{} }
 		if payload.body != '' || r.body.contains('"body"') {
 			body = payload.body
 			has_body = true
@@ -442,12 +426,11 @@ pub fn message_update(mut d database.DB, r Req) Resp {
 		return err_resp('body required', 422)
 	}
 	update_message_body(mut d, mid, body, now_epoch())
-	updated := message_dict(mut d, mid) or {
-		return err_resp('not found', 404)
-	}
+	updated := message_dict(mut d, mid) or { return err_resp('not found', 404) }
 	return present(views_for(mut d, [updated])[0])
 }
 
+// message_delete deletes a message with authorization.
 pub fn message_delete(mut d database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
@@ -458,21 +441,15 @@ pub fn message_delete(mut d database.DB, r Req) Resp {
 	if room_access(mut d, uid, rid) == none {
 		return err_resp('not found', 404)
 	}
-	row := message_dict(mut d, mid) or {
-		return err_resp('not found', 404)
-	}
+	row := message_dict(mut d, mid) or { return err_resp('not found', 404) }
 	if row.room_id != rid {
 		return err_resp('not found', 404)
 	}
-	me := user(mut d, uid) or {
-		return err_resp('forbidden', 403)
-	}
+	me := user(mut d, uid) or { return err_resp('forbidden', 403) }
 	if !c.can_administer(me.role, uid, row.creator_id, false) {
 		return err_resp('forbidden', 403)
 	}
-	delete_message_cascade(mut d, mid) or {
-		return err_resp('not found', 404)
-	}
+	delete_message_cascade(mut d, mid) or { return err_resp('not found', 404) }
 	return blank(204)
 }
 
@@ -483,26 +460,27 @@ pub mut:
 	booster_id i64
 }
 
+// boost_list lists boosts of a message.
 pub fn boost_list(mut d database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
 		return login_redirect()
 	}
 	mid := int_path_arg(r, 'mid')
-	row := message_dict(mut d, mid) or {
-		return err_resp('not found', 404)
-	}
+	row := message_dict(mut d, mid) or { return err_resp('not found', 404) }
 	if room_access(mut d, uid, row.room_id) == none {
 		return err_resp('not found', 404)
 	}
 	rows := d.query_all('SELECT id,content,booster_id FROM boosts WHERE message_id=? ORDER BY id', [
 		mid.str(),
-	]) or {
-		return err_resp('not found', 404)
-	}
+	]) or { return err_resp('not found', 404) }
 	mut out := []BoostView{}
 	for b in rows {
-		out << BoostView{id: row_i64(b, 0), content: row_str(b, 1), booster_id: row_i64(b, 2)}
+		out << BoostView{
+			id:         row_i64(b, 0)
+			content:    row_str(b, 1)
+			booster_id: row_i64(b, 2)
+		}
 	}
 	return present(out)
 }
@@ -518,15 +496,14 @@ pub mut:
 	content string
 }
 
+// boost_create creates a boost.
 pub fn boost_create(mut d database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
 		return login_redirect()
 	}
 	mid := int_path_arg(r, 'mid')
-	row := message_dict(mut d, mid) or {
-		return err_resp('not found', 404)
-	}
+	row := message_dict(mut d, mid) or { return err_resp('not found', 404) }
 	if room_access(mut d, uid, row.room_id) == none {
 		return err_resp('not found', 404)
 	}
@@ -541,9 +518,10 @@ pub fn boost_create(mut d database.DB, r Req) Resp {
 	boost := create_boost(mut d, mid, uid, content, now_epoch()) or {
 		return err_resp('invalid boost content', 422)
 	}
-	return created(BoostView{id: boost.id, content: boost.content, booster_id: uid})
+	return created(BoostView{ id: boost.id, content: boost.content, booster_id: uid })
 }
 
+// boost_delete deletes one own boost.
 pub fn boost_delete(mut d database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
@@ -551,9 +529,7 @@ pub fn boost_delete(mut d database.DB, r Req) Resp {
 	}
 	mid := int_path_arg(r, 'mid')
 	bid := int_path_arg(r, 'bid')
-	row := message_dict(mut d, mid) or {
-		return err_resp('not found', 404)
-	}
+	row := message_dict(mut d, mid) or { return err_resp('not found', 404) }
 	if room_access(mut d, uid, row.room_id) == none {
 		return err_resp('not found', 404)
 	}
@@ -563,6 +539,7 @@ pub fn boost_delete(mut d database.DB, r Req) Resp {
 	return blank(204)
 }
 
+// autocomplete serves user completions scoped to a room.
 pub fn autocomplete(mut d database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {

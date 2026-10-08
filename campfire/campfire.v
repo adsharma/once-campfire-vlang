@@ -314,6 +314,7 @@ pub mut:
 // Small pure helpers
 // ---------------------------------------------------------------------------
 
+// alloc_id returns a fresh id from the store, advancing the counter.
 pub fn (mut s Store) alloc_id() i64 {
 	fresh := s.next_id
 	s.next_id = s.next_id + 1
@@ -321,10 +322,12 @@ pub fn (mut s Store) alloc_id() i64 {
 	return fresh
 }
 
+// is_digit_char reports whether c is an ASCII digit.
 pub fn is_digit_char(c u8) bool {
 	return c >= `0` && c <= `9`
 }
 
+// is_hex_char reports whether c is an ASCII hex digit.
 pub fn is_hex_char(c u8) bool {
 	if is_digit_char(c) {
 		return true
@@ -338,6 +341,7 @@ pub fn is_hex_char(c u8) bool {
 	return false
 }
 
+// is_name_char reports whether c is a sound-command word character.
 pub fn is_name_char(c u8) bool {
 	if c >= `a` && c <= `z` {
 		return true
@@ -351,6 +355,7 @@ pub fn is_name_char(c u8) bool {
 	return c == `_`
 }
 
+// parse_decimal parses an all-digit string, rejecting anything else.
 pub fn parse_decimal(text string) IntResult {
 	if text == '' {
 		return IntResult{
@@ -377,10 +382,12 @@ pub fn str_len(text string) i64 {
 	return text.len
 }
 
+// has_prefix reports whether text starts with pref.
 pub fn has_prefix(text string, pref string) bool {
 	return text.starts_with(pref)
 }
 
+// remove_all deletes every occurrence of needle from body.
 pub fn remove_all(body string, needle string) string {
 	if needle == '' {
 		return body
@@ -388,6 +395,7 @@ pub fn remove_all(body string, needle string) string {
 	return body.replace(needle, '')
 }
 
+// json_escape escapes a string for embedding in JSON output.
 pub fn json_escape(text string) string {
 	mut out := []u8{cap: text.len + 8}
 	for ch in text {
@@ -417,6 +425,7 @@ pub fn json_escape(text string) string {
 // User rules (User::Role, avatar initials, title)
 // ---------------------------------------------------------------------------
 
+// can_administer mirrors User::Role: admins, owners and new records may administer.
 pub fn can_administer(role i64, self_id i64, creator_id i64, is_new_record bool) bool {
 	if role == role_admin {
 		return true
@@ -429,6 +438,7 @@ pub fn can_administer(role i64, self_id i64, creator_id i64, is_new_record bool)
 	}
 }
 
+// can_create_room reports whether a role may create rooms under the account restriction.
 pub fn can_create_room(role i64, restrict_to_admins bool) bool {
 	if restrict_to_admins && role != role_admin {
 		return false
@@ -437,6 +447,7 @@ pub fn can_create_room(role i64, restrict_to_admins bool) bool {
 	}
 }
 
+// user_initials returns the avatar initials (first byte of each word).
 pub fn user_initials(name string) string {
 	mut out := []u8{}
 	for w in name.split(' ') {
@@ -447,6 +458,7 @@ pub fn user_initials(name string) string {
 	return out.bytestr()
 }
 
+// user_title returns "name - bio", whichever parts are present.
 pub fn user_title(name string, bio string) string {
 	if bio == '' {
 		return name
@@ -462,6 +474,7 @@ pub fn user_title(name string, bio string) string {
 // Room rules (Room, Rooms::Open/Closed/Direct)
 // ---------------------------------------------------------------------------
 
+// default_involvement returns the membership level new members get (direct rooms notify on everything).
 pub fn default_involvement(kind i64) i64 {
 	if kind == room_direct {
 		return involvement_everything
@@ -470,10 +483,12 @@ pub fn default_involvement(kind i64) i64 {
 	}
 }
 
+// is_valid_room_kind reports whether kind is open, closed or direct.
 pub fn is_valid_room_kind(kind i64) bool {
 	return kind == room_open || kind == room_closed || kind == room_direct
 }
 
+// direct_type_change_blocked forbids widening a direct room after the fact.
 pub fn direct_type_change_blocked(old_kind i64, new_kind i64) bool {
 	// A direct room's participants agreed to a private conversation, not to
 	// one whose audience someone else widens afterwards.
@@ -484,6 +499,7 @@ pub fn direct_type_change_blocked(old_kind i64, new_kind i64) bool {
 	}
 }
 
+// room_kind_name names a room kind for display.
 pub fn room_kind_name(kind i64) string {
 	if kind == room_open {
 		return 'open'
@@ -496,6 +512,7 @@ pub fn room_kind_name(kind i64) string {
 	}
 }
 
+// involvement_name names an involvement level (the Rails string form).
 pub fn involvement_name(involvement i64) string {
 	if involvement == involvement_invisible {
 		return 'invisible'
@@ -508,10 +525,12 @@ pub fn involvement_name(involvement i64) string {
 	}
 }
 
+// is_visible_membership reports whether an involvement level shows in the sidebar.
 pub fn is_visible_membership(involvement i64) bool {
 	return involvement != involvement_invisible
 }
 
+// same_id_set reports whether two id lists hold the same members.
 pub fn same_id_set(a []i64, b []i64) bool {
 	if a.len != b.len {
 		return false
@@ -534,6 +553,7 @@ pub fn same_id_set(a []i64, b []i64) bool {
 // RoomMembership connection rules (RoomMembership::Connectable)
 // ---------------------------------------------------------------------------
 
+// is_connected reports whether a membership heartbeat is still within the TTL.
 pub fn is_connected(connected_at i64, now i64) bool {
 	assert now >= 0 && connected_at >= 0
 	if connected_at == 0 {
@@ -543,6 +563,7 @@ pub fn is_connected(connected_at i64, now i64) bool {
 	}
 }
 
+// connect_step models present/connect: record the connection and clear unread.
 pub fn connect_step(connected_at i64, connections i64, now i64) RoomMembership {
 	// Models present/connect: record the connection and clear unread.
 	assert now > 0
@@ -553,6 +574,7 @@ pub fn connect_step(connected_at i64, connections i64, now i64) RoomMembership {
 	}
 }
 
+// increment_connections adds a connection, or starts a fresh one when expired.
 pub fn increment_connections(connected_at i64, connections i64, now i64) RoomMembership {
 	if is_connected(connected_at, now) {
 		return RoomMembership{
@@ -568,6 +590,7 @@ pub fn increment_connections(connected_at i64, connections i64, now i64) RoomMem
 	}
 }
 
+// decrement_connections removes a connection, clearing the heartbeat at zero.
 pub fn decrement_connections(connected_at i64, connections i64, now i64) RoomMembership {
 	if is_connected(connected_at, now) {
 		mut left := connections - 1
@@ -598,6 +621,7 @@ pub fn decrement_connections(connected_at i64, connections i64, now i64) RoomMem
 // Message rules (body, sound commands, content types, mentions)
 // ---------------------------------------------------------------------------
 
+// message_plain_body falls back to the attachment name when the body is empty.
 pub fn message_plain_body(body string, attachment_name string) string {
 	if body != '' {
 		return body
@@ -606,6 +630,7 @@ pub fn message_plain_body(body string, attachment_name string) string {
 	}
 }
 
+// sound_command parses exactly "/play <word>", else returns empty.
 pub fn sound_command(body string) string {
 	// Matches /\A\/play (?<name>\w+)\z/: exactly "/play <word>".
 	if !has_prefix(body, '/play ') {
@@ -629,6 +654,7 @@ pub fn sound_command(body string) string {
 	return name
 }
 
+// content_type_of classifies a message as text, attachment or sound.
 pub fn content_type_of(has_attachment bool, sound_name string) i64 {
 	if has_attachment {
 		return content_attachment
@@ -639,6 +665,7 @@ pub fn content_type_of(has_attachment bool, sound_name string) i64 {
 	}
 }
 
+// content_type_name names a content type for display.
 pub fn content_type_name(content_type i64) string {
 	if content_type == content_attachment {
 		return 'attachment'
@@ -649,10 +676,12 @@ pub fn content_type_name(content_type i64) string {
 	}
 }
 
+// mention_text renders the @mention token for a user name.
 pub fn mention_text(user_name string) string {
 	return '@' + user_name
 }
 
+// strip_mention removes one user mention token from a body.
 pub fn strip_mention(body string, user_name string) string {
 	cleaned := remove_all(body, mention_text(user_name))
 	return cleaned.trim_space()
@@ -662,6 +691,7 @@ pub fn strip_mention(body string, user_name string) string {
 // Ban rules (Ban: only public IPs may be banned)
 // ---------------------------------------------------------------------------
 
+// parse_ipv4 parses a dotted quad into a 32-bit address.
 pub fn parse_ipv4(text string) IntResult {
 	parts := text.split('.')
 	if parts.len != 4 {
@@ -701,6 +731,7 @@ pub fn parse_ipv4(text string) IntResult {
 	}
 }
 
+// ipv4_is_public rejects loopback, private and link-local ranges.
 pub fn ipv4_is_public(addr i64) bool {
 	assert addr >= 0
 	first := addr / 16777216
@@ -723,6 +754,7 @@ pub fn ipv4_is_public(addr i64) bool {
 	return true
 }
 
+// ipv6_tail_after_last_colon returns the embedded IPv4 tail of an IPv6 literal.
 pub fn ipv6_tail_after_last_colon(text string) string {
 	mut tail := ''
 	for ch in text {
@@ -735,6 +767,7 @@ pub fn ipv6_tail_after_last_colon(text string) string {
 	return tail
 }
 
+// ipv6_is_well_formed checks the colon/hex/dot shape of an IPv6 literal.
 pub fn ipv6_is_well_formed(text string) bool {
 	if text == '' {
 		return false
@@ -754,6 +787,7 @@ pub fn ipv6_is_well_formed(text string) bool {
 	return has_colon
 }
 
+// ipv6_is_public rejects loopback, link-local and unique-local ranges.
 pub fn ipv6_is_public(lower string) bool {
 	if lower == '::1' {
 		return false
@@ -779,6 +813,7 @@ pub fn ipv6_is_public(lower string) bool {
 	return true
 }
 
+// validate_ban_ip accepts only public IPv4/IPv6 addresses for bans.
 pub fn validate_ban_ip(ip_address string) StrResult {
 	assert ip_address != ''
 	parsed := parse_ipv4(ip_address)
@@ -838,12 +873,14 @@ pub fn validate_ban_ip(ip_address string) StrResult {
 // Bot rules (User::Bot key handling)
 // ---------------------------------------------------------------------------
 
+// bot_key_of renders the "<id>-<token>" bot credential.
 pub fn bot_key_of(user_id i64, token string) string {
 	assert user_id > 0
 	assert token != ''
 	return user_id.str() + '-' + token
 }
 
+// parse_bot_key splits an "<id>-<token>" key and validates the id.
 pub fn parse_bot_key(key string) IntResult {
 	// Splits "id-token" on the first dash; value is the id when the token
 	// part is nonempty.
@@ -886,6 +923,7 @@ pub fn parse_bot_key(key string) IntResult {
 	}
 }
 
+// bot_key_token returns the token half of a bot key.
 pub fn bot_key_token(key string) string {
 	mut right := ''
 	mut seen_dash := false
@@ -899,6 +937,7 @@ pub fn bot_key_token(key string) string {
 	return right
 }
 
+// is_valid_bot_token checks the 12-character bot token length.
 pub fn is_valid_bot_token(token string) bool {
 	return str_len(token) == bot_token_len
 }
@@ -907,6 +946,7 @@ pub fn is_valid_bot_token(token string) bool {
 // Account rules (Account::Joinable)
 // ---------------------------------------------------------------------------
 
+// is_valid_join_token checks the 12 alphanumeric join token shape.
 pub fn is_valid_join_token(token string) bool {
 	if str_len(token) != join_code_len {
 		return false
@@ -929,6 +969,7 @@ pub fn is_valid_join_token(token string) bool {
 	return true
 }
 
+// format_join_code renders a join token as "xxxx-xxxx-xxxx".
 pub fn format_join_code(token string) StrResult {
 	if !is_valid_join_token(token) {
 		return StrResult{
@@ -951,6 +992,7 @@ pub fn format_join_code(token string) StrResult {
 	}
 }
 
+// deactivated_email rewrites an address to "head-deactivated-stamp@tail".
 pub fn deactivated_email(email string, stamp string) string {
 	if email == '' {
 		return ''
@@ -970,6 +1012,7 @@ pub fn deactivated_email(email string, stamp string) string {
 // Session rules
 // ---------------------------------------------------------------------------
 
+// session_needs_refresh reports whether activity is past the refresh window.
 pub fn session_needs_refresh(last_active_at i64, now i64) bool {
 	assert now >= last_active_at
 	return now - last_active_at > session_refresh_secs
@@ -979,6 +1022,7 @@ pub fn session_needs_refresh(last_active_at i64, now i64) bool {
 // Webhook rules (payload building + reply classification; no HTTP)
 // ---------------------------------------------------------------------------
 
+// webhook_timeout_text is the reply body for a timed-out webhook.
 pub fn webhook_timeout_text() string {
 	return 'Failed to respond within ' + webhook_timeout_secs.str() + ' seconds'
 }
@@ -999,6 +1043,7 @@ pub mut:
 	plain_body    string
 }
 
+// build_webhook_payload renders the JSON a bot webhook receives.
 pub fn build_webhook_payload(p WebhookPayload) string {
 	assert p.bot_user_id > 0
 	assert p.room_id > 0
@@ -1015,6 +1060,7 @@ pub fn build_webhook_payload(p WebhookPayload) string {
 	return out
 }
 
+// webhook_reply_kind classifies a webhook reply as text, attachment or none.
 pub fn webhook_reply_kind(content_type string) string {
 	if content_type == 'text/html' {
 		return 'text'
@@ -1040,6 +1086,7 @@ pub fn webhook_reply_kind(content_type string) string {
 	return 'none'
 }
 
+// webhook_attachment_ext maps a reply MIME type to a file extension.
 pub fn webhook_attachment_ext(content_type string) string {
 	if content_type == 'image/png' {
 		return 'png'
@@ -1063,6 +1110,7 @@ pub fn webhook_attachment_ext(content_type string) string {
 // Sound catalog (Sound::BUILTIN: name + text or image)
 // ---------------------------------------------------------------------------
 
+// builtin_sounds returns the Sound::BUILTIN catalog.
 pub fn builtin_sounds() []SoundEntry {
 	return [
 		SoundEntry{
@@ -1292,6 +1340,7 @@ pub fn builtin_sounds() []SoundEntry {
 	]
 }
 
+// find_sound looks a sound up by name in the catalog.
 pub fn find_sound(sounds []SoundEntry, name string) SoundResult {
 	assert name != ''
 	for s in sounds {
@@ -1311,6 +1360,7 @@ pub fn find_sound(sounds []SoundEntry, name string) SoundResult {
 // Store lookups (linear scans; index assignment keeps transpiled Go valid)
 // ---------------------------------------------------------------------------
 
+// find_user_index scans the store for a user id.
 pub fn (s &Store) find_user_index(user_id i64) int {
 	for i, u in s.users {
 		if u.id == user_id {
@@ -1320,6 +1370,7 @@ pub fn (s &Store) find_user_index(user_id i64) int {
 	return -1
 }
 
+// find_room_index scans the store for a room id.
 pub fn (s &Store) find_room_index(room_id i64) int {
 	for i, r in s.rooms {
 		if r.id == room_id {
@@ -1329,6 +1380,7 @@ pub fn (s &Store) find_room_index(room_id i64) int {
 	return -1
 }
 
+// find_membership_index scans the store for a room/user membership.
 pub fn (s &Store) find_membership_index(room_id i64, user_id i64) int {
 	for i, m in s.memberships {
 		if m.room_id == room_id && m.user_id == user_id {
@@ -1338,6 +1390,7 @@ pub fn (s &Store) find_membership_index(room_id i64, user_id i64) int {
 	return -1
 }
 
+// find_message_index scans the store for a message id.
 pub fn (s &Store) find_message_index(message_id i64) int {
 	for i, m in s.messages {
 		if m.id == message_id {
@@ -1347,6 +1400,7 @@ pub fn (s &Store) find_message_index(message_id i64) int {
 	return -1
 }
 
+// find_session_index scans the store for a session id.
 pub fn (s &Store) find_session_index(session_id i64) int {
 	for i, sess in s.sessions {
 		if sess.id == session_id {
@@ -1356,6 +1410,7 @@ pub fn (s &Store) find_session_index(session_id i64) int {
 	return -1
 }
 
+// find_search_index scans the store for a search record id.
 pub fn (s &Store) find_search_index(search_id i64) int {
 	for i, rec in s.searches {
 		if rec.id == search_id {
@@ -1365,6 +1420,7 @@ pub fn (s &Store) find_search_index(search_id i64) int {
 	return -1
 }
 
+// find_webhook_index_for_user scans the store for a bot webhook.
 pub fn (s &Store) find_webhook_index_for_user(user_id i64) int {
 	for i, w in s.webhooks {
 		if w.user_id == user_id {
@@ -1374,6 +1430,7 @@ pub fn (s &Store) find_webhook_index_for_user(user_id i64) int {
 	return -1
 }
 
+// is_banned_ip reports whether an address has a ban row.
 pub fn (s &Store) is_banned_ip(ip_address string) bool {
 	for b in s.bans {
 		if b.ip_address == ip_address {
@@ -1383,6 +1440,7 @@ pub fn (s &Store) is_banned_ip(ip_address string) bool {
 	return false
 }
 
+// member_user_ids lists every member of a room.
 pub fn (s &Store) member_user_ids(room_id i64) []i64 {
 	mut ids := []i64{}
 	for m in s.memberships {
@@ -1393,6 +1451,7 @@ pub fn (s &Store) member_user_ids(room_id i64) []i64 {
 	return ids
 }
 
+// room_messages lists every message of a room in id order.
 pub fn (s &Store) room_messages(room_id i64) []Message {
 	mut out := []Message{}
 	for m in s.messages {
@@ -1403,6 +1462,7 @@ pub fn (s &Store) room_messages(room_id i64) []Message {
 	return out
 }
 
+// message_is_before orders a message against a (created_at, id) anchor.
 pub fn message_is_before(msg Message, anchor_created i64, anchor_id i64) bool {
 	if msg.created_at < anchor_created {
 		return true
@@ -1413,6 +1473,7 @@ pub fn message_is_before(msg Message, anchor_created i64, anchor_id i64) bool {
 	return false
 }
 
+// message_is_after orders a message against a (created_at, id) anchor.
 pub fn message_is_after(msg Message, anchor_created i64, anchor_id i64) bool {
 	if msg.created_at > anchor_created {
 		return true
@@ -1423,6 +1484,7 @@ pub fn message_is_after(msg Message, anchor_created i64, anchor_id i64) bool {
 	return false
 }
 
+// last_page returns the newest page of at most 40 messages.
 pub fn last_page(messages []Message) []Message {
 	mut out := []Message{}
 	mut start := messages.len - int(page_size)
@@ -1437,6 +1499,7 @@ pub fn last_page(messages []Message) []Message {
 	return out
 }
 
+// first_page returns the oldest page of at most 40 messages.
 pub fn first_page(messages []Message) []Message {
 	mut out := []Message{}
 	mut i := 0
@@ -1447,6 +1510,7 @@ pub fn first_page(messages []Message) []Message {
 	return out
 }
 
+// page_before returns the 40 messages before an anchor.
 pub fn page_before(messages []Message, anchor_created i64, anchor_id i64) []Message {
 	mut older := []Message{}
 	for m in messages {
@@ -1457,6 +1521,7 @@ pub fn page_before(messages []Message, anchor_created i64, anchor_id i64) []Mess
 	return last_page(older)
 }
 
+// page_after returns the 40 messages after an anchor.
 pub fn page_after(messages []Message, anchor_created i64, anchor_id i64) []Message {
 	mut newer := []Message{}
 	for m in messages {
@@ -1467,6 +1532,7 @@ pub fn page_after(messages []Message, anchor_created i64, anchor_id i64) []Messa
 	return first_page(newer)
 }
 
+// page_around returns an anchor with its surrounding pages.
 pub fn page_around(messages []Message, anchor Message) []Message {
 	mut out := page_before(messages, anchor.created_at, anchor.id)
 	out << anchor
@@ -1477,6 +1543,7 @@ pub fn page_around(messages []Message, anchor Message) []Message {
 	return out
 }
 
+// is_paged reports whether a message list exceeds one page.
 pub fn is_paged(messages []Message) bool {
 	return messages.len > int(page_size)
 }
@@ -1485,6 +1552,7 @@ pub fn is_paged(messages []Message) bool {
 // Store operations: users and rooms
 // ---------------------------------------------------------------------------
 
+// create_user validates and stores a user, granting open-room memberships.
 pub fn (mut s Store) create_user(name string, email string, role i64, now i64,
 	token string) UserResult {
 	if name == '' {
@@ -1544,6 +1612,7 @@ pub fn (mut s Store) create_user(name string, email string, role i64, now i64,
 	}
 }
 
+// create_room validates and stores a room with its initial memberships.
 pub fn (mut s Store) create_room(kind i64, name string, creator_id i64,
 	member_ids []i64, now i64) RoomResult {
 	if !is_valid_room_kind(kind) {
@@ -1591,6 +1660,7 @@ pub fn (mut s Store) create_room(kind i64, name string, creator_id i64,
 	}
 }
 
+// find_direct_room finds the direct room for exactly a member set.
 pub fn (s &Store) find_direct_room(user_ids []i64) RoomResult {
 	for r in s.rooms {
 		if r.kind == room_direct {
@@ -1608,6 +1678,7 @@ pub fn (s &Store) find_direct_room(user_ids []i64) RoomResult {
 	}
 }
 
+// find_or_create_direct_room reuses the direct room or creates it.
 pub fn (mut s Store) find_or_create_direct_room(creator_id i64, user_ids []i64,
 	now i64) RoomResult {
 	existing := s.find_direct_room(user_ids)
@@ -1617,6 +1688,7 @@ pub fn (mut s Store) find_or_create_direct_room(creator_id i64, user_ids []i64,
 	return s.create_room(room_direct, '', creator_id, user_ids, now)
 }
 
+// convert_room_kind changes a room kind, granting access when opening.
 pub fn (mut s Store) convert_room_kind(room_id i64, new_kind i64, now i64) RoomResult {
 	if !is_valid_room_kind(new_kind) {
 		return RoomResult{
@@ -1663,6 +1735,7 @@ pub fn (mut s Store) convert_room_kind(room_id i64, new_kind i64, now i64) RoomR
 	}
 }
 
+// grant_memberships adds missing memberships and returns the count.
 pub fn (mut s Store) grant_memberships(room_id i64, user_ids []i64, now i64) i64 {
 	idx := s.find_room_index(room_id)
 	assert idx >= 0
@@ -1687,6 +1760,7 @@ pub fn (mut s Store) grant_memberships(room_id i64, user_ids []i64, now i64) i64
 	return added
 }
 
+// remove_memberships drops memberships and returns the count.
 pub fn (mut s Store) remove_memberships(room_id i64, user_ids []i64) i64 {
 	mut removed := i64(0)
 	mut kept := []RoomMembership{}
@@ -1710,6 +1784,7 @@ pub fn (mut s Store) remove_memberships(room_id i64, user_ids []i64) i64 {
 	return removed
 }
 
+// revise_memberships grants and revokes memberships in one step.
 pub fn (mut s Store) revise_memberships(room_id i64, granted []i64, revoked []i64,
 	now i64) i64 {
 	added := s.grant_memberships(room_id, granted, now)
@@ -1717,6 +1792,7 @@ pub fn (mut s Store) revise_memberships(room_id i64, granted []i64, revoked []i6
 	return added + removed
 }
 
+// set_involvement changes a membership notification level.
 pub fn (mut s Store) set_involvement(room_id i64, user_id i64, involvement i64,
 	now i64) bool {
 	if involvement < involvement_invisible || involvement > involvement_everything {
@@ -1740,6 +1816,7 @@ pub fn (mut s Store) set_involvement(room_id i64, user_id i64, involvement i64,
 	return true
 }
 
+// read_membership clears the unread marker of a membership.
 pub fn (mut s Store) read_membership(room_id i64, user_id i64, now i64) bool {
 	idx := s.find_membership_index(room_id, user_id)
 	if idx < 0 {
@@ -1758,6 +1835,7 @@ pub fn (mut s Store) read_membership(room_id i64, user_id i64, now i64) bool {
 	return true
 }
 
+// present_membership records a live connection and clears unread.
 pub fn (mut s Store) present_membership(room_id i64, user_id i64, connections i64,
 	now i64) bool {
 	assert now > 0
@@ -1778,6 +1856,7 @@ pub fn (mut s Store) present_membership(room_id i64, user_id i64, connections i6
 	return true
 }
 
+// disconnect_membership drops one connection of a membership.
 pub fn (mut s Store) disconnect_membership(room_id i64, user_id i64, now i64) bool {
 	idx := s.find_membership_index(room_id, user_id)
 	if idx < 0 {
@@ -1798,6 +1877,7 @@ pub fn (mut s Store) disconnect_membership(room_id i64, user_id i64, now i64) bo
 	return true
 }
 
+// disconnect_all clears every live connection.
 pub fn (mut s Store) disconnect_all(now i64) i64 {
 	mut count := i64(0)
 	for i := 0; i < s.memberships.len; i++ {
@@ -1818,6 +1898,7 @@ pub fn (mut s Store) disconnect_all(now i64) i64 {
 	return count
 }
 
+// mark_room_unread flags disconnected visible members on a new message.
 pub fn (mut s Store) mark_room_unread(room_id i64, creator_id i64, created_at i64,
 	now i64) i64 {
 	assert created_at > 0
@@ -1843,6 +1924,7 @@ pub fn (mut s Store) mark_room_unread(room_id i64, creator_id i64, created_at i6
 	return marked
 }
 
+// eligible_webhook_bots lists the bots a message notifies.
 pub fn (s &Store) eligible_webhook_bots(room_id i64, message Message) []i64 {
 	mut bots := []i64{}
 	ridx := s.find_room_index(room_id)
@@ -1867,6 +1949,7 @@ pub fn (s &Store) eligible_webhook_bots(room_id i64, message Message) []i64 {
 	return bots
 }
 
+// post_message validates, stores and fans out a message.
 pub fn (mut s Store) post_message(room_id i64, creator_id i64, body string,
 	attachment_name string, mention_ids []i64, client_message_id string,
 	now i64) MessageResult {
@@ -1935,6 +2018,7 @@ pub fn (mut s Store) post_message(room_id i64, creator_id i64, body string,
 	}
 }
 
+// message_mentionees intersects message mentions with room members.
 pub fn (s &Store) message_mentionees(message Message) []i64 {
 	mut out := []i64{}
 	for mid in message.mention_ids {
@@ -1945,6 +2029,7 @@ pub fn (s &Store) message_mentionees(message Message) []i64 {
 	return out
 }
 
+// boost_message validates and stores a boost.
 pub fn (mut s Store) boost_message(message_id i64, booster_id i64, content string,
 	now i64) BoostResult {
 	assert now > 0
@@ -1982,6 +2067,7 @@ pub fn (mut s Store) boost_message(message_id i64, booster_id i64, content strin
 	}
 }
 
+// start_session validates and stores a session.
 pub fn (mut s Store) start_session(user_id i64, token string, ip_address string,
 	user_agent string, now i64) SessionResult {
 	assert now > 0
@@ -2011,6 +2097,7 @@ pub fn (mut s Store) start_session(user_id i64, token string, ip_address string,
 	}
 }
 
+// touch_session refreshes activity past the refresh window.
 pub fn (mut s Store) touch_session(session_id i64, user_agent string,
 	ip_address string, now i64) bool {
 	idx := s.find_session_index(session_id)
@@ -2034,6 +2121,7 @@ pub fn (mut s Store) touch_session(session_id i64, user_agent string,
 	return false
 }
 
+// trim_searches caps per-user search history at ten records.
 pub fn (mut s Store) trim_searches(user_id i64) i64 {
 	mut removed := i64(0)
 	for {
@@ -2067,6 +2155,7 @@ pub fn (mut s Store) trim_searches(user_id i64) i64 {
 	return removed
 }
 
+// record_search stores or re-touches a search query.
 pub fn (mut s Store) record_search(user_id i64, query string, now i64) SearchResult {
 	assert now > 0
 	if query == '' {
@@ -2115,6 +2204,7 @@ pub fn (mut s Store) record_search(user_id i64, query string, now i64) SearchRes
 	}
 }
 
+// set_bot_webhook upserts or clears a bot webhook.
 pub fn (mut s Store) set_bot_webhook(user_id i64, url string, now i64) WebhookResult {
 	assert now > 0
 	if s.find_user_index(user_id) < 0 {
@@ -2157,6 +2247,7 @@ pub fn (mut s Store) set_bot_webhook(user_id i64, url string, now i64) WebhookRe
 	}
 }
 
+// apply_webhook_reply posts a classified bot webhook reply.
 pub fn (mut s Store) apply_webhook_reply(room_id i64, bot_user_id i64,
 	content_type string, body string, now i64, client_id string) MessageResult {
 	kind := webhook_reply_kind(content_type)
@@ -2179,6 +2270,7 @@ pub fn (mut s Store) apply_webhook_reply(room_id i64, bot_user_id i64,
 	}
 }
 
+// create_bot creates a bot user with an optional webhook.
 pub fn (mut s Store) create_bot(name string, token string, webhook_url string,
 	now i64) UserResult {
 	created := s.create_user(name, '', role_bot, now, token)
@@ -2191,6 +2283,7 @@ pub fn (mut s Store) create_bot(name string, token string, webhook_url string,
 	return created
 }
 
+// authenticate_bot resolves an "<id>-<token>" key to an active bot.
 pub fn (s &Store) authenticate_bot(key string) UserResult {
 	parsed := parse_bot_key(key)
 	if !parsed.ok {
@@ -2217,6 +2310,7 @@ pub fn (s &Store) authenticate_bot(key string) UserResult {
 	}
 }
 
+// reset_bot_token replaces the token of a bot user.
 pub fn (mut s Store) reset_bot_token(user_id i64, new_token string) UserResult {
 	if !is_valid_bot_token(new_token) {
 		return UserResult{
@@ -2251,6 +2345,7 @@ pub fn (mut s Store) reset_bot_token(user_id i64, new_token string) UserResult {
 	}
 }
 
+// create_ban validates and stores a public-IP ban.
 pub fn (mut s Store) create_ban(user_id i64, ip_address string, now i64) BanResult {
 	assert now > 0
 	if s.find_user_index(user_id) < 0 {
@@ -2284,6 +2379,7 @@ pub fn (mut s Store) create_ban(user_id i64, ip_address string, now i64) BanResu
 	}
 }
 
+// ban_user bans session IPs, clears sessions and messages, and marks the user banned.
 pub fn (mut s Store) ban_user(user_id i64, now i64) IntResult {
 	assert now > 0
 	uidx := s.find_user_index(user_id)
@@ -2347,6 +2443,7 @@ pub fn (mut s Store) ban_user(user_id i64, now i64) IntResult {
 	}
 }
 
+// unban_user clears bans and reactivates a user.
 pub fn (mut s Store) unban_user(user_id i64, now i64) UserResult {
 	assert now > 0
 	uidx := s.find_user_index(user_id)
@@ -2380,6 +2477,7 @@ pub fn (mut s Store) unban_user(user_id i64, now i64) UserResult {
 	}
 }
 
+// deactivate_user strips non-direct memberships and anonymizes a user.
 pub fn (mut s Store) deactivate_user(user_id i64, stamp string, now i64) StrResult {
 	assert now > 0
 	uidx := s.find_user_index(user_id)
@@ -2452,6 +2550,7 @@ pub fn (mut s Store) deactivate_user(user_id i64, stamp string, now i64) StrResu
 	}
 }
 
+// create_account validates and stores the singleton account.
 pub fn (mut s Store) create_account(name string, join_token string, now i64) StrResult {
 	assert now > 0
 	if name == '' {
@@ -2476,6 +2575,7 @@ pub fn (mut s Store) create_account(name string, join_token string, now i64) Str
 	}
 }
 
+// reset_account_join_code replaces the account join code.
 pub fn (mut s Store) reset_account_join_code(account_id i64, join_token string,
 	now i64) StrResult {
 	assert now > 0

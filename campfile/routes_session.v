@@ -18,21 +18,24 @@ fn sign_token(secret string, token string) string {
 	return base64.url_encode((token + '.' + hex.encode(mac)).bytes())
 }
 
+// issue_session starts a session row for a fresh login.
 pub fn issue_session(mut db database.DB, user_id i64, remote_addr string,
 	agent string, now i64) string {
 	return start_session(mut db, user_id, remote_addr, agent, now) or { '' }
 }
 
+// set_session_cookie writes the signed session cookie header.
 pub fn set_session_cookie(secret string, mut resp Resp, token string) {
 	resp.headers['Set-Cookie'] = cookie_name + '=' + sign_token(secret, token) +
 		'; Path=/; HttpOnly'
 }
 
+// clear_session_cookie writes the expired session cookie header.
 pub fn clear_session_cookie(mut resp Resp) {
-	resp.headers['Set-Cookie'] = cookie_name +
-		'=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT'
+	resp.headers['Set-Cookie'] = cookie_name + '=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT'
 }
 
+// session_new serves the sign-in form.
 pub fn session_new(mut db database.DB, r Req) Resp {
 	_ = db
 	_ = r
@@ -48,6 +51,7 @@ pub mut:
 	password      string
 }
 
+// session_post verifies credentials, starts a session and sets the cookie.
 pub fn session_post(mut db database.DB, r Req) Resp {
 	mut email := r.form['email_address'] or { '' }
 	mut password := r.form['password'] or { '' }
@@ -67,6 +71,7 @@ pub fn session_post(mut db database.DB, r Req) Resp {
 	return resp
 }
 
+// session_delete ends the session and clears the cookie.
 pub fn session_delete(mut db database.DB, r Req) Resp {
 	raw := r.cookies[cookie_name] or { '' }
 	if raw != '' {
@@ -76,11 +81,11 @@ pub fn session_delete(mut db database.DB, r Req) Resp {
 		}
 	}
 	mut resp := redirect_to('/session/new')
-	resp.headers['Set-Cookie'] = cookie_name +
-		'=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT'
+	resp.headers['Set-Cookie'] = cookie_name + '=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT'
 	return resp
 }
 
+// unsign_token verifies a signed cookie and returns the token.
 pub fn unsign_token(secret string, signed string) string {
 	raw := base64.url_decode_str(signed)
 	cut := raw.last_index('.') or { return '' }

@@ -52,13 +52,11 @@ pub mut:
 
 // room_access returns (room row, membership row) scoped to a member.
 pub fn room_access(mut d database.DB, user_id i64, room_id i64) ?RoomRow {
-	rows := d.query_all('SELECT id,coalesce(name,\'\'),type,creator_id FROM rooms WHERE id=? AND id IN (SELECT room_id FROM memberships WHERE room_id=? AND user_id=?)', [
+	rows := d.query_all("SELECT id,coalesce(name,''),type,creator_id FROM rooms WHERE id=? AND id IN (SELECT room_id FROM memberships WHERE room_id=? AND user_id=?)", [
 		room_id.str(),
 		room_id.str(),
 		user_id.str(),
-	]) or {
-		return none
-	}
+	]) or { return none }
 	if rows.len == 0 {
 		return none
 	}
@@ -71,12 +69,12 @@ pub fn room_access(mut d database.DB, user_id i64, room_id i64) ?RoomRow {
 	}
 }
 
+// membership loads one membership row.
 pub fn membership(mut d database.DB, room_id i64, user_id i64) ?MembershipRow {
-	rows := d.query_all('SELECT id,room_id,user_id,coalesce(involvement,\'mentions\'),connections FROM memberships WHERE room_id=? AND user_id=?', [
-		room_id.str(), user_id.str(),
-	]) or {
-		return none
-	}
+	rows := d.query_all("SELECT id,room_id,user_id,coalesce(involvement,'mentions'),connections FROM memberships WHERE room_id=? AND user_id=?", [
+		room_id.str(),
+		user_id.str(),
+	]) or { return none }
 	if rows.len == 0 {
 		return none
 	}
@@ -99,9 +97,7 @@ pub fn bot_auth(mut d database.DB, key string) ?UserRow {
 	if !parsed.ok {
 		return none
 	}
-	row := user(mut d, parsed.value) or {
-		return none
-	}
+	row := user(mut d, parsed.value) or { return none }
 	if row.role != c.role_bot || row.status != c.status_active {
 		return none
 	}
@@ -113,11 +109,9 @@ pub fn bot_auth(mut d database.DB, key string) ?UserRow {
 
 // bot_token_of reads the stored bot token (bot_auth compares against it).
 pub fn bot_token_of(mut d database.DB, user_id i64) string {
-	rows := d.query_all('SELECT coalesce(bot_token,\'\') FROM users WHERE id=?', [
+	rows := d.query_all("SELECT coalesce(bot_token,'') FROM users WHERE id=?", [
 		user_id.str(),
-	]) or {
-		return ''
-	}
+	]) or { return '' }
 	if rows.len == 0 {
 		return ''
 	}
@@ -138,6 +132,7 @@ pub fn grant_open_rooms(mut d database.DB, user_id i64) ! {
 	]) or { return err }
 }
 
+// create_user inserts a user row, granting open rooms to non-bots.
 pub fn create_user(mut d database.DB, name string, email string, password string, role i64,
 	bot_token string, now i64) ?UserRow {
 	stamp := to_db_time(now)
@@ -147,7 +142,7 @@ pub fn create_user(mut d database.DB, name string, email string, password string
 			return none
 		}
 	}
-	d.exec_none('INSERT INTO users(name,email_address,password_digest,role,status,bot_token,created_at,updated_at) VALUES(?,NULLIF(?,\'\'),NULLIF(?,\'\'),?,0,NULLIF(?,\'\'),?,?)', [
+	d.exec_none("INSERT INTO users(name,email_address,password_digest,role,status,bot_token,created_at,updated_at) VALUES(?,NULLIF(?,''),NULLIF(?,''),?,0,NULLIF(?,''),?,?)", [
 		name,
 		email,
 		digest,
@@ -159,16 +154,10 @@ pub fn create_user(mut d database.DB, name string, email string, password string
 		// Unique email_address / bot_token violations land here.
 		return none
 	}
-	id := d.query_int('SELECT last_insert_rowid()', []) or {
-		return none
-	}
-	row := user(mut d, id) or {
-		return none
-	}
+	id := d.query_int('SELECT last_insert_rowid()', []) or { return none }
+	row := user(mut d, id) or { return none }
 	if role != c.role_bot {
-		grant_open_rooms(mut d, id) or {
-			return none
-		}
+		grant_open_rooms(mut d, id) or { return none }
 	}
 	return row
 }
@@ -184,6 +173,7 @@ pub mut:
 	password string
 }
 
+// update_profile patches name, bio, email and password digest.
 pub fn update_profile(mut d database.DB, id i64, patch ProfilePatch, now i64) ! {
 	mut sets := []string{}
 	mut params := []string{}
@@ -192,29 +182,31 @@ pub fn update_profile(mut d database.DB, id i64, patch ProfilePatch, now i64) ! 
 		params << patch.name
 	}
 	if patch.has_bio {
-		sets << 'bio=NULLIF(?,\'\')'
+		sets << "bio=NULLIF(?,'')"
 		params << patch.bio
 	}
 	if patch.has_mail {
-		sets << 'email_address=NULLIF(?,\'\')'
+		sets << "email_address=NULLIF(?,'')"
 		params << patch.email
 	}
 	if patch.password != '' {
 		sets << 'password_digest=?'
-		params << bcrypt.generate_from_password(patch.password.bytes(),
-			bcrypt.default_cost) or { '' }
+		params << bcrypt.generate_from_password(patch.password.bytes(), bcrypt.default_cost) or {
+			''
+		}
 	}
 	sets << 'updated_at=?'
 	params << to_db_time(now)
 	params << id.str()
-	d.exec_none('UPDATE users SET ' + sets.join(',') + ' WHERE id=?', params) or {
-		return err
-	}
+	d.exec_none('UPDATE users SET ' + sets.join(',') + ' WHERE id=?', params) or { return err }
 }
 
+// set_role changes a user role.
 pub fn set_role(mut d database.DB, id i64, role i64, now i64) ! {
 	d.exec_none('UPDATE users SET role=?, updated_at=? WHERE id=?', [
-		role.str(), to_db_time(now), id.str(),
+		role.str(),
+		to_db_time(now),
+		id.str(),
 	]) or { return err }
 }
 
@@ -224,24 +216,20 @@ pub fn deactivate_user(mut d database.DB, id i64, now i64) ! {
 	stamp := to_db_time(now)
 	rows := d.query_all('SELECT m.id,r.type FROM memberships m LEFT JOIN rooms r ON r.id=m.room_id WHERE m.user_id=?', [
 		id.str(),
-	]) or {
-		return err
-	}
+	]) or { return err }
 	for r in rows {
 		if row_str(r, 1) != 'Rooms::Direct' {
-			d.exec_none('DELETE FROM memberships WHERE id=?', [row_i64(r, 0).str()]) or {
-				return err
-			}
+			d.exec_none('DELETE FROM memberships WHERE id=?', [
+				row_i64(r, 0).str(),
+			]) or { return err }
 		}
 	}
 	for table in ['push_subscriptions', 'searches', 'sessions'] {
-		d.exec_none('DELETE FROM ' + table + ' WHERE user_id=?', [id.str()]) or {
-			return err
-		}
+		d.exec_none('DELETE FROM ' + table + ' WHERE user_id=?', [
+			id.str(),
+		]) or { return err }
 	}
-	row := user(mut d, id) or {
-		return err
-	}
+	row := user(mut d, id) or { return err }
 	mut email := row.email_address
 	if email != '' {
 		email = email.replace('@', '-deactivated-' + random_hex(8) + '@')
@@ -256,9 +244,7 @@ pub fn deactivate_user(mut d database.DB, id i64, now i64) ! {
 }
 
 fn random_hex(n int) string {
-	b := rand.bytes(n) or {
-		return ''
-	}
+	b := rand.bytes(n) or { return '' }
 	hexdigits := '0123456789abcdef'
 	mut out := []u8{cap: b.len * 2}
 	for v in b {
@@ -268,10 +254,9 @@ fn random_hex(n int) string {
 	return out.bytestr()
 }
 
+// random_join_code generates a random account join code.
 pub fn random_join_code() string {
-	b := rand.bytes(18) or {
-		panic(err)
-	}
+	b := rand.bytes(18) or { panic(err) }
 	return base64.url_encode(b)
 }
 
@@ -279,6 +264,7 @@ pub fn random_join_code() string {
 // Rooms
 // ---------------------------------------------------------------------------
 
+// create_room inserts a room, reusing the direct room for a repeated member set.
 pub fn create_room(mut d database.DB, kind i64, name string, creator_id i64, member_ids []i64,
 	now i64) ?RoomRow {
 	stamp := to_db_time(now)
@@ -299,9 +285,7 @@ pub fn create_room(mut d database.DB, kind i64, name string, creator_id i64, mem
 		for cand in cands {
 			have := d.query_all('SELECT user_id FROM memberships WHERE room_id=?', [
 				row_i64(cand, 0).str(),
-			]) or {
-				continue
-			}
+			]) or { continue }
 			if have.len == wanted.len {
 				mut same := true
 				for r in have {
@@ -315,18 +299,14 @@ pub fn create_room(mut d database.DB, kind i64, name string, creator_id i64, mem
 			}
 		}
 	}
-	d.exec_none('INSERT INTO rooms(name,type,creator_id,created_at,updated_at) VALUES(NULLIF(?,\'\'),?,?,?,?)', [
+	d.exec_none("INSERT INTO rooms(name,type,creator_id,created_at,updated_at) VALUES(NULLIF(?,''),?,?,?,?)", [
 		name,
 		room_kind_to_type(kind),
 		creator_id.str(),
 		stamp,
 		stamp,
-	]) or {
-		return none
-	}
-	id := d.query_int('SELECT last_insert_rowid()', []) or {
-		return none
-	}
+	]) or { return none }
+	id := d.query_int('SELECT last_insert_rowid()', []) or { return none }
 	involve := if kind == c.room_direct { 'everything' } else { 'mentions' }
 	for uid in wanted {
 		d.exec_none('INSERT INTO memberships(room_id,user_id,involvement,created_at,updated_at) VALUES(?,?,?,?,?)', [
@@ -335,9 +315,7 @@ pub fn create_room(mut d database.DB, kind i64, name string, creator_id i64, mem
 			involve,
 			stamp,
 			stamp,
-		]) or {
-			return none
-		}
+		]) or { return none }
 	}
 	return RoomRow{
 		id:         id
@@ -347,23 +325,25 @@ pub fn create_room(mut d database.DB, kind i64, name string, creator_id i64, mem
 	}
 }
 
+// revise_room renames a room and reconciles its membership set.
 pub fn revise_room(mut d database.DB, room RoomRow, name string, member_ids []i64,
 	is_open_kind bool, now i64) ! {
 	stamp := to_db_time(now)
 	if room.typ != 'Rooms::Direct' {
-		d.exec_none('UPDATE rooms SET name=NULLIF(?,\'\'), updated_at=? WHERE id=?', [
-			name, stamp, room.id.str(),
+		d.exec_none("UPDATE rooms SET name=NULLIF(?,''), updated_at=? WHERE id=?", [
+			name,
+			stamp,
+			room.id.str(),
 		]) or { return err }
 	} else {
 		d.exec_none('UPDATE rooms SET updated_at=? WHERE id=?', [
-			stamp, room.id.str(),
+			stamp,
+			room.id.str(),
 		]) or { return err }
 	}
 	mut wanted := []i64{}
 	if is_open_kind {
-		rows := d.query_all('SELECT id FROM users WHERE status=0', []) or {
-			return err
-		}
+		rows := d.query_all('SELECT id FROM users WHERE status=0', []) or { return err }
 		for r in rows {
 			wanted << row_i64(r, 0)
 		}
@@ -376,9 +356,7 @@ pub fn revise_room(mut d database.DB, room RoomRow, name string, member_ids []i6
 	}
 	mem := d.query_all('SELECT id,user_id FROM memberships WHERE room_id=?', [
 		room.id.str(),
-	]) or {
-		return err
-	}
+	]) or { return err }
 	for r in mem {
 		if row_i64(r, 1) !in wanted {
 			d.exec_none('DELETE FROM memberships WHERE id=?', [
@@ -388,9 +366,7 @@ pub fn revise_room(mut d database.DB, room RoomRow, name string, member_ids []i6
 	}
 	have := d.query_all('SELECT user_id FROM memberships WHERE room_id=?', [
 		room.id.str(),
-	]) or {
-		return err
-	}
+	]) or { return err }
 	involve := if room.typ == 'Rooms::Direct' { 'everything' } else { 'mentions' }
 	for uid in wanted {
 		mut found := false
@@ -411,21 +387,19 @@ pub fn revise_room(mut d database.DB, room RoomRow, name string, member_ids []i6
 	}
 }
 
+// delete_room_cascade deletes a room with its messages and memberships.
 pub fn delete_room_cascade(mut d database.DB, room_id i64) ! {
-	msgs := d.query_all('SELECT id FROM messages WHERE room_id=?', [room_id.str()]) or {
-		return err
-	}
+	msgs := d.query_all('SELECT id FROM messages WHERE room_id=?', [
+		room_id.str(),
+	]) or { return err }
 	for r in msgs {
-		delete_message_cascade(mut d, row_i64(r, 0)) or {
-			return err
-		}
+		delete_message_cascade(mut d, row_i64(r, 0)) or { return err }
 	}
-	d.exec_none('DELETE FROM memberships WHERE room_id=?', [room_id.str()]) or {
-		return err
-	}
+	d.exec_none('DELETE FROM memberships WHERE room_id=?', [room_id.str()]) or { return err }
 	d.exec_none('DELETE FROM rooms WHERE id=?', [room_id.str()]) or { return err }
 }
 
+// set_involvement changes a membership notification level.
 pub fn set_involvement(mut d database.DB, room_id i64, user_id i64, choice string, now i64) ! {
 	d.exec_none('UPDATE memberships SET involvement=?, updated_at=? WHERE room_id=? AND user_id=?', [
 		choice,
@@ -435,9 +409,11 @@ pub fn set_involvement(mut d database.DB, room_id i64, user_id i64, choice strin
 	]) or { return err }
 }
 
+// touch_room bumps a room updated_at timestamp.
 pub fn touch_room(mut d database.DB, room_id i64, now i64) {
 	d.exec_none('UPDATE rooms SET updated_at=? WHERE id=?', [
-		to_db_time(now), room_id.str(),
+		to_db_time(now),
+		room_id.str(),
 	]) or {}
 }
 
@@ -445,55 +421,48 @@ pub fn touch_room(mut d database.DB, room_id i64, now i64) {
 // Messages and boosts
 // ---------------------------------------------------------------------------
 
+// update_message_body upserts a message rich-text body.
 pub fn update_message_body(mut d database.DB, message_id i64, body string, now i64) bool {
 	stamp := to_db_time(now)
 	rows := d.query_all("SELECT id FROM action_text_rich_texts WHERE record_type='Message' AND record_id=? AND name='body'", [
 		message_id.str(),
-	]) or {
-		return false
-	}
+	]) or { return false }
 	if rows.len == 0 {
 		d.exec_none("INSERT INTO action_text_rich_texts(record_type,record_id,name,body,created_at,updated_at) VALUES('Message',?,'body',?,?,?)", [
-			message_id.str(), body, stamp, stamp,
-		]) or {
-			return false
-		}
+			message_id.str(),
+			body,
+			stamp,
+			stamp,
+		]) or { return false }
 	} else {
 		d.exec_none('UPDATE action_text_rich_texts SET body=?, updated_at=? WHERE id=?', [
-			body, stamp, row_i64(rows[0], 0).str(),
-		]) or {
-			return false
-		}
+			body,
+			stamp,
+			row_i64(rows[0], 0).str(),
+		]) or { return false }
 	}
 	d.exec_none('UPDATE messages SET updated_at=? WHERE id=?', [
-		stamp, message_id.str(),
-	]) or {
-		return false
-	}
+		stamp,
+		message_id.str(),
+	]) or { return false }
 	return true
 }
 
+// delete_message_cascade deletes a message with boosts, bodies and mentions.
 pub fn delete_message_cascade(mut d database.DB, message_id i64) ?i64 {
-	d.exec_none('DELETE FROM boosts WHERE message_id=?', [message_id.str()]) or {
-		return none
-	}
-	d.exec_none('DELETE FROM action_text_rich_texts WHERE record_type=\'Message\' AND record_id=?', [
+	d.exec_none('DELETE FROM boosts WHERE message_id=?', [message_id.str()]) or { return none }
+	d.exec_none("DELETE FROM action_text_rich_texts WHERE record_type='Message' AND record_id=?", [
 		message_id.str(),
-	]) or {
-		return none
-	}
+	]) or { return none }
 	d.exec_none('DELETE FROM message_mentions WHERE message_id=?', [
 		message_id.str(),
 	]) or {}
-	row := message_dict(mut d, message_id) or {
-		return none
-	}
-	d.exec_none('DELETE FROM messages WHERE id=?', [message_id.str()]) or {
-		return none
-	}
+	row := message_dict(mut d, message_id) or { return none }
+	d.exec_none('DELETE FROM messages WHERE id=?', [message_id.str()]) or { return none }
 	return row.room_id
 }
 
+// create_boost validates and inserts a boost, touching the message.
 pub fn create_boost(mut d database.DB, message_id i64, user_id i64, content string,
 	now i64) ?BoostRow {
 	trimmed := content.trim_space()
@@ -507,14 +476,11 @@ pub fn create_boost(mut d database.DB, message_id i64, user_id i64, content stri
 		trimmed,
 		stamp,
 		stamp,
-	]) or {
-		return none
-	}
-	id := d.query_int('SELECT last_insert_rowid()', []) or {
-		return none
-	}
+	]) or { return none }
+	id := d.query_int('SELECT last_insert_rowid()', []) or { return none }
 	d.exec_none('UPDATE messages SET updated_at=? WHERE id=?', [
-		stamp, message_id.str(),
+		stamp,
+		message_id.str(),
 	]) or {}
 	return BoostRow{
 		id:         id
@@ -524,20 +490,17 @@ pub fn create_boost(mut d database.DB, message_id i64, user_id i64, content stri
 	}
 }
 
+// delete_boost deletes one own boost.
 pub fn delete_boost(mut d database.DB, boost_id i64, message_id i64, user_id i64) bool {
 	n := d.query_int('SELECT count(*) FROM boosts WHERE id=? AND message_id=? AND booster_id=?', [
 		boost_id.str(),
 		message_id.str(),
 		user_id.str(),
-	]) or {
-		return false
-	}
+	]) or { return false }
 	if n == 0 {
 		return false
 	}
-	d.exec_none('DELETE FROM boosts WHERE id=?', [boost_id.str()]) or {
-		return false
-	}
+	d.exec_none('DELETE FROM boosts WHERE id=?', [boost_id.str()]) or { return false }
 	return true
 }
 
@@ -545,6 +508,7 @@ pub fn delete_boost(mut d database.DB, boost_id i64, message_id i64, user_id i64
 // Search history
 // ---------------------------------------------------------------------------
 
+// record_search upserts a search query and trims history to ten.
 pub fn record_search(mut d database.DB, user_id i64, query string, now i64) ! {
 	stamp := to_db_time(now)
 	d.exec_none('INSERT INTO searches(user_id,query,created_at,updated_at) VALUES(?,?,?,?) ON CONFLICT DO NOTHING', [
@@ -552,36 +516,30 @@ pub fn record_search(mut d database.DB, user_id i64, query string, now i64) ! {
 		query,
 		stamp,
 		stamp,
-	]) or {
-		return err
-	}
+	]) or { return err }
 	d.exec_none('UPDATE searches SET updated_at=? WHERE user_id=? AND query=?', [
-		stamp, user_id.str(), query,
-	]) or {
-		return err
-	}
+		stamp,
+		user_id.str(),
+		query,
+	]) or { return err }
 	ids := d.query_all('SELECT id FROM searches WHERE user_id=? ORDER BY updated_at DESC', [
 		user_id.str(),
-	]) or {
-		return err
-	}
-	for i in int(c.max_recent_searches)..ids.len {
-		d.exec_none('DELETE FROM searches WHERE id=?', [row_i64(ids[i], 0).str()]) or {
-			return err
-		}
+	]) or { return err }
+	for i in int(c.max_recent_searches) .. ids.len {
+		d.exec_none('DELETE FROM searches WHERE id=?', [row_i64(ids[i], 0).str()]) or { return err }
 	}
 }
 
+// clear_searches deletes all of a user search history.
 pub fn clear_searches(mut d database.DB, user_id i64) {
 	d.exec_none('DELETE FROM searches WHERE user_id=?', [user_id.str()]) or {}
 }
 
+// recent_searches lists the ten most recent search queries.
 pub fn recent_searches(mut d database.DB, user_id i64) []string {
 	rows := d.query_all('SELECT query FROM searches WHERE user_id=? ORDER BY updated_at DESC LIMIT 10', [
 		user_id.str(),
-	]) or {
-		return []string{}
-	}
+	]) or { return []string{} }
 	mut out := []string{cap: rows.len}
 	for r in rows {
 		out << row_str(r, 0)
@@ -593,6 +551,7 @@ pub fn recent_searches(mut d database.DB, user_id i64) []string {
 // Push subscriptions
 // ---------------------------------------------------------------------------
 
+// pushsub_upsert inserts or updates a push subscription by endpoint.
 pub fn pushsub_upsert(mut d database.DB, user_id i64, endpoint string, p256dh string,
 	auth string, agent string, now i64) ?PushRow {
 	if endpoint.trim_space() == '' {
@@ -600,12 +559,11 @@ pub fn pushsub_upsert(mut d database.DB, user_id i64, endpoint string, p256dh st
 	}
 	stamp := to_db_time(now)
 	rows := d.query_all('SELECT id FROM push_subscriptions WHERE user_id=? AND endpoint=?', [
-		user_id.str(), endpoint,
-	]) or {
-		return none
-	}
+		user_id.str(),
+		endpoint,
+	]) or { return none }
 	if rows.len == 0 {
-		d.exec_none('INSERT INTO push_subscriptions(user_id,endpoint,p256dh_key,auth_key,user_agent,created_at,updated_at) VALUES(?,?,NULLIF(?,\'\'),NULLIF(?,\'\'),NULLIF(?,\'\'),?,?)', [
+		d.exec_none("INSERT INTO push_subscriptions(user_id,endpoint,p256dh_key,auth_key,user_agent,created_at,updated_at) VALUES(?,?,NULLIF(?,''),NULLIF(?,''),NULLIF(?,''),?,?)", [
 			user_id.str(),
 			endpoint,
 			p256dh,
@@ -613,47 +571,56 @@ pub fn pushsub_upsert(mut d database.DB, user_id i64, endpoint string, p256dh st
 			agent,
 			stamp,
 			stamp,
-		]) or {
-			return none
+		]) or { return none }
+		id := d.query_int('SELECT last_insert_rowid()', []) or { return none }
+		return PushRow{
+			id:         id
+			endpoint:   endpoint
+			user_agent: agent
 		}
-		id := d.query_int('SELECT last_insert_rowid()', []) or {
-			return none
-		}
-		return PushRow{id: id, endpoint: endpoint, user_agent: agent}
 	}
-	d.exec_none('UPDATE push_subscriptions SET p256dh_key=NULLIF(?,\'\'), auth_key=NULLIF(?,\'\'), user_agent=NULLIF(?,\'\'), updated_at=? WHERE id=?', [
-		p256dh, auth, agent, stamp, row_i64(rows[0], 0).str(),
-	]) or {
-		return none
+	d.exec_none("UPDATE push_subscriptions SET p256dh_key=NULLIF(?,''), auth_key=NULLIF(?,''), user_agent=NULLIF(?,''), updated_at=? WHERE id=?", [
+		p256dh,
+		auth,
+		agent,
+		stamp,
+		row_i64(rows[0], 0).str(),
+	]) or { return none }
+	return PushRow{
+		id:         row_i64(rows[0], 0)
+		endpoint:   endpoint
+		user_agent: agent
 	}
-	return PushRow{id: row_i64(rows[0], 0), endpoint: endpoint, user_agent: agent}
 }
 
+// pushsub_list lists a user push subscriptions.
 pub fn pushsub_list(mut d database.DB, user_id i64) []PushRow {
-	rows := d.query_all('SELECT id,coalesce(endpoint,\'\'),coalesce(user_agent,\'\') FROM push_subscriptions WHERE user_id=? ORDER BY id', [
+	rows := d.query_all("SELECT id,coalesce(endpoint,''),coalesce(user_agent,'') FROM push_subscriptions WHERE user_id=? ORDER BY id", [
 		user_id.str(),
-	]) or {
-		return []PushRow{}
-	}
+	]) or { return []PushRow{} }
 	mut out := []PushRow{cap: rows.len}
 	for r in rows {
-		out << PushRow{id: row_i64(r, 0), endpoint: row_str(r, 1), user_agent: row_str(r, 2)}
+		out << PushRow{
+			id:         row_i64(r, 0)
+			endpoint:   row_str(r, 1)
+			user_agent: row_str(r, 2)
+		}
 	}
 	return out
 }
 
+// pushsub_delete deletes one own push subscription.
 pub fn pushsub_delete(mut d database.DB, user_id i64, subscription_id i64) bool {
 	n := d.query_int('SELECT count(*) FROM push_subscriptions WHERE id=? AND user_id=?', [
-		subscription_id.str(), user_id.str(),
-	]) or {
-		return false
-	}
+		subscription_id.str(),
+		user_id.str(),
+	]) or { return false }
 	if n == 0 {
 		return false
 	}
-	d.exec_none('DELETE FROM push_subscriptions WHERE id=?', [subscription_id.str()]) or {
-		return false
-	}
+	d.exec_none('DELETE FROM push_subscriptions WHERE id=?', [
+		subscription_id.str(),
+	]) or { return false }
 	return true
 }
 
@@ -661,6 +628,7 @@ pub fn pushsub_delete(mut d database.DB, user_id i64, subscription_id i64) bool 
 // Account
 // ---------------------------------------------------------------------------
 
+// update_account patches the account name and room-creation restriction.
 pub fn update_account(mut d database.DB, id i64, name string, has_name bool,
 	restrict bool, has_settings bool, now i64) ! {
 	mut sets := []string{}
@@ -671,28 +639,31 @@ pub fn update_account(mut d database.DB, id i64, name string, has_name bool,
 	}
 	if has_settings {
 		sets << 'settings=?'
-		settings := '{"restrict_room_creation_to_administrators":' +
-			(restrict.str()) + '}'
+		settings := '{"restrict_room_creation_to_administrators":' + (restrict.str()) + '}'
 		params << settings
 	}
 	sets << 'updated_at=?'
 	params << to_db_time(now)
 	params << id.str()
-	d.exec_none('UPDATE accounts SET ' + sets.join(',') + ' WHERE id=?', params) or {
-		return err
-	}
+	d.exec_none('UPDATE accounts SET ' + sets.join(',') + ' WHERE id=?', params) or { return err }
 }
 
+// update_styles replaces the account custom styles.
 pub fn update_styles(mut d database.DB, id i64, styles string, now i64) ! {
-	d.exec_none('UPDATE accounts SET custom_styles=NULLIF(?,\'\'), updated_at=? WHERE id=?', [
-		styles, to_db_time(now), id.str(),
+	d.exec_none("UPDATE accounts SET custom_styles=NULLIF(?,''), updated_at=? WHERE id=?", [
+		styles,
+		to_db_time(now),
+		id.str(),
 	]) or { return err }
 }
 
+// reset_join_code generates a fresh account join code.
 pub fn reset_join_code(mut d database.DB, id i64, now i64) string {
 	code := random_join_code()
 	d.exec_none('UPDATE accounts SET join_code=?, updated_at=? WHERE id=?', [
-		code, to_db_time(now), id.str(),
+		code,
+		to_db_time(now),
+		id.str(),
 	]) or {}
 	return code
 }
@@ -701,13 +672,12 @@ pub fn reset_join_code(mut d database.DB, id i64, now i64) string {
 // Bans
 // ---------------------------------------------------------------------------
 
+// ban_user bans session IPs, clears sessions and messages, and marks the user banned.
 pub fn ban_user(mut d database.DB, id i64, now i64) i64 {
 	stamp := to_db_time(now)
-	sess := d.query_all('SELECT id,coalesce(ip_address,\'\') FROM sessions WHERE user_id=?', [
+	sess := d.query_all("SELECT id,coalesce(ip_address,'') FROM sessions WHERE user_id=?", [
 		id.str(),
-	]) or {
-		return 0
-	}
+	]) or { return 0 }
 	mut ips := []string{}
 	for r in sess {
 		ip := row_str(r, 1)
@@ -735,6 +705,7 @@ pub fn ban_user(mut d database.DB, id i64, now i64) i64 {
 	return ips.len
 }
 
+// unban_user clears bans and reactivates a user.
 pub fn unban_user(mut d database.DB, id i64, now i64) {
 	d.exec_none('DELETE FROM bans WHERE user_id=?', [id.str()]) or {}
 	d.exec_none('UPDATE users SET status=?, updated_at=? WHERE id=?', [
@@ -748,11 +719,12 @@ pub fn unban_user(mut d database.DB, id i64, now i64) {
 // Bots and first run
 // ---------------------------------------------------------------------------
 
+// bot_upsert_webhook upserts or clears a bot webhook URL.
 pub fn bot_upsert_webhook(mut d database.DB, bot_id i64, url string, now i64) {
 	stamp := to_db_time(now)
-	rows := d.query_all('SELECT id FROM webhooks WHERE user_id=?', [bot_id.str()]) or {
-		return
-	}
+	rows := d.query_all('SELECT id FROM webhooks WHERE user_id=?', [
+		bot_id.str(),
+	]) or { return }
 	if url != '' {
 		if rows.len == 0 {
 			d.exec_none('INSERT INTO webhooks(user_id,url,created_at,updated_at) VALUES(?,?,?,?)', [
@@ -764,7 +736,9 @@ pub fn bot_upsert_webhook(mut d database.DB, bot_id i64, url string, now i64) {
 			return
 		}
 		d.exec_none('UPDATE webhooks SET url=?, updated_at=? WHERE id=?', [
-			url, stamp, row_i64(rows[0], 0).str(),
+			url,
+			stamp,
+			row_i64(rows[0], 0).str(),
 		]) or {}
 		return
 	}
@@ -773,21 +747,23 @@ pub fn bot_upsert_webhook(mut d database.DB, bot_id i64, url string, now i64) {
 	}
 }
 
+// bot_webhook reads a bot webhook URL.
 pub fn bot_webhook(mut d database.DB, bot_id i64) string {
-	rows := d.query_all('SELECT coalesce(url,\'\') FROM webhooks WHERE user_id=? LIMIT 1', [
+	rows := d.query_all("SELECT coalesce(url,'') FROM webhooks WHERE user_id=? LIMIT 1", [
 		bot_id.str(),
-	]) or {
-		return ''
-	}
+	]) or { return '' }
 	if rows.len == 0 {
 		return ''
 	}
 	return row_str(rows[0], 0)
 }
 
+// set_bot_token replaces a bot stored token.
 pub fn set_bot_token(mut d database.DB, bot_id i64, token string, now i64) {
 	d.exec_none('UPDATE users SET bot_token=?, updated_at=? WHERE id=?', [
-		token, to_db_time(now), bot_id.str(),
+		token,
+		to_db_time(now),
+		bot_id.str(),
 	]) or {}
 }
 
@@ -799,6 +775,7 @@ pub mut:
 	room    RoomRow
 }
 
+// first_run_create creates the account, admin user and lobby room.
 pub fn first_run_create(mut d database.DB, name string, email string, password string,
 	now i64) ?FirstRun {
 	stamp := to_db_time(now)
@@ -807,17 +784,13 @@ pub fn first_run_create(mut d database.DB, name string, email string, password s
 		random_join_code(),
 		stamp,
 		stamp,
-	]) or {
-		return none
+	]) or { return none }
+	account := account_row(mut d) or { return none }
+	me := create_user(mut d, name, email, password, c.role_admin, '', now) or { return none }
+	room := create_room(mut d, c.room_open, 'All Talk', me.id, [me.id], now) or { return none }
+	return FirstRun{
+		account: account
+		user:    me
+		room:    room
 	}
-	account := account_row(mut d, ) or {
-		return none
-	}
-	me := create_user(mut d, name, email, password, c.role_admin, '', now) or {
-		return none
-	}
-	room := create_room(mut d, c.room_open, 'All Talk', me.id, [me.id], now) or {
-		return none
-	}
-	return FirstRun{account: account, user: me, room: room}
 }

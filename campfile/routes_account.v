@@ -39,24 +39,20 @@ pub mut:
 	members        []UserJson
 }
 
+// account_show serves the account overview with administrators and members.
 pub fn account_show(mut d database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
 		return login_redirect()
 	}
-	me := user(mut d, uid) or {
-		return err_resp('not found', 404)
-	}
-	account := account_row(mut d, ) or {
-		return err_resp('not found', 404)
-	}
-	mut statement := 'SELECT id,coalesce(name,\'\'),coalesce(email_address,\'\'),role,status FROM users WHERE role != ' +
+	me := user(mut d, uid) or { return err_resp('not found', 404) }
+	account := account_row(mut d) or { return err_resp('not found', 404) }
+	mut statement :=
+		"SELECT id,coalesce(name,''),coalesce(email_address,''),role,status FROM users WHERE role != " +
 		c.role_bot.str() + ' AND status '
 	statement += if me.role == c.role_admin { 'IN (0,2)' } else { '= 0' }
 	statement += ' ORDER BY lower(name) LIMIT 500'
-	rows := d.query_all(statement, []) or {
-		return err_resp('not found', 404)
-	}
+	rows := d.query_all(statement, []) or { return err_resp('not found', 404) }
 	mut admins := []UserJson{}
 	mut members := []UserJson{}
 	for row in rows {
@@ -99,6 +95,7 @@ pub mut:
 	account AccountForm
 }
 
+// account_update patches the account name and settings.
 pub fn account_update(mut d database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
@@ -107,9 +104,7 @@ pub fn account_update(mut d database.DB, r Req) Resp {
 	if !admin_or_403(mut d, uid) {
 		return err_resp('forbidden', 403)
 	}
-	account := account_row(mut d, ) or {
-		return err_resp('not found', 404)
-	}
+	account := account_row(mut d) or { return err_resp('not found', 404) }
 	mut name := ''
 	mut has_name := false
 	mut restrict := false
@@ -119,7 +114,9 @@ pub fn account_update(mut d database.DB, r Req) Resp {
 		form := if outer.account.name != '' || r.body.contains('"settings"') {
 			outer.account
 		} else {
-			AccountForm{name: outer.name}
+			AccountForm{
+				name: outer.name
+			}
 		}
 		if r.body.contains('"name"') {
 			name = form.name
@@ -137,9 +134,7 @@ pub fn account_update(mut d database.DB, r Req) Resp {
 	update_account(mut d, account.id, name, has_name, restrict, has_settings, now_epoch()) or {
 		return err_resp('unprocessable', 422)
 	}
-	updated := account_row(mut d, ) or {
-		return err_resp('not found', 404)
-	}
+	updated := account_row(mut d) or { return err_resp('not found', 404) }
 	return present(AccountUpdated{
 		name:     updated.name
 		settings: account_settings(updated).restrict_room_creation_to_administrators
@@ -152,6 +147,7 @@ pub mut:
 	settings bool
 }
 
+// account_user changes a role or deactivates a user.
 pub fn account_user(mut d database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
@@ -161,17 +157,13 @@ pub fn account_user(mut d database.DB, r Req) Resp {
 		return err_resp('forbidden', 403)
 	}
 	other := int_path_arg(r, 'id')
-	row := user(mut d, other) or {
-		return err_resp('not found', 404)
-	}
+	row := user(mut d, other) or { return err_resp('not found', 404) }
 	if row.status != 0 {
 		return err_resp('not found', 404)
 	}
 	if r.method == 'DELETE' {
-		deactivate_user(mut d, other, now_epoch()) or {
-			return err_resp('unprocessable', 422)
-		}
-		return present(UserStatus{id: other, status: 1})
+		deactivate_user(mut d, other, now_epoch()) or { return err_resp('unprocessable', 422) }
+		return present(UserStatus{ id: other, status: 1 })
 	}
 	mut role := c.role_member
 	if r.body != '' {
@@ -183,10 +175,8 @@ pub fn account_user(mut d database.DB, r Req) Resp {
 			role = c.role_admin
 		}
 	}
-	set_role(mut d, other, role, now_epoch()) or {
-		return err_resp('unprocessable', 422)
-	}
-	return present(UserRole{id: other, role: role})
+	set_role(mut d, other, role, now_epoch()) or { return err_resp('unprocessable', 422) }
+	return present(UserRole{ id: other, role: role })
 }
 
 struct UserRolePayload {
@@ -227,6 +217,7 @@ pub mut:
 	name string
 }
 
+// bots_list lists bots with keys, webhooks and rooms.
 pub fn bots_list(mut d database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
@@ -235,21 +226,20 @@ pub fn bots_list(mut d database.DB, r Req) Resp {
 	if !admin_or_403(mut d, uid) {
 		return err_resp('forbidden', 403)
 	}
-	rows := d.query_all('SELECT id,coalesce(name,\'\') FROM users WHERE role=? AND status=0 ORDER BY lower(name)', [
+	rows := d.query_all("SELECT id,coalesce(name,'') FROM users WHERE role=? AND status=0 ORDER BY lower(name)", [
 		c.role_bot.str(),
-	]) or {
-		return err_resp('not found', 404)
-	}
+	]) or { return err_resp('not found', 404) }
 	mut out := []BotView{}
 	for b in rows {
 		bid := row_i64(b, 0)
 		mut brooms := []BotRoom{}
-		for rm in d.query_all('SELECT r.id,coalesce(r.name,\'\') FROM rooms r JOIN memberships m ON m.room_id=r.id WHERE m.user_id=? ORDER BY r.id', [
+		for rm in d.query_all("SELECT r.id,coalesce(r.name,'') FROM rooms r JOIN memberships m ON m.room_id=r.id WHERE m.user_id=? ORDER BY r.id", [
 			bid.str(),
-		]) or {
-			[]
-		} {
-			brooms << BotRoom{id: row_i64(rm, 0), name: row_str(rm, 1)}
+		]) or { [] } {
+			brooms << BotRoom{
+				id:   row_i64(rm, 0)
+				name: row_str(rm, 1)
+			}
 		}
 		out << BotView{
 			id:      bid
@@ -262,6 +252,7 @@ pub fn bots_list(mut d database.DB, r Req) Resp {
 	return present(out)
 }
 
+// bot_new_form serves the new-bot form data.
 pub fn bot_new_form(mut d database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
@@ -279,9 +270,12 @@ pub mut:
 }
 
 fn new_bot_form() BotFormNew {
-	return BotFormNew{new: true}
+	return BotFormNew{
+		new: true
+	}
 }
 
+// bot_edit_form serves the edit-bot form data.
 pub fn bot_edit_form(mut d database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
@@ -291,13 +285,11 @@ pub fn bot_edit_form(mut d database.DB, r Req) Resp {
 		return err_resp('forbidden', 403)
 	}
 	bid := int_path_arg(r, 'id')
-	bot := user(mut d, bid) or {
-		return err_resp('not found', 404)
-	}
+	bot := user(mut d, bid) or { return err_resp('not found', 404) }
 	if bot.role != c.role_bot {
 		return err_resp('not found', 404)
 	}
-	return present(BotEditView{id: bot.id, name: bot.name, webhook: bot_webhook(mut d, bot.id)})
+	return present(BotEditView{ id: bot.id, name: bot.name, webhook: bot_webhook(mut d, bot.id) })
 }
 
 pub struct BotEditView {
@@ -320,6 +312,7 @@ pub mut:
 	webhook_url string
 }
 
+// bot_create creates a bot with an optional webhook.
 pub fn bot_create(mut d database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
@@ -373,6 +366,7 @@ fn random_bot_token() string {
 	return token
 }
 
+// bot_edit renames a bot, sets its webhook, or deactivates it.
 pub fn bot_edit(mut d database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
@@ -382,17 +376,13 @@ pub fn bot_edit(mut d database.DB, r Req) Resp {
 		return err_resp('forbidden', 403)
 	}
 	bid := int_path_arg(r, 'id')
-	mut bot := user(mut d, bid) or {
-		return err_resp('not found', 404)
-	}
+	mut bot := user(mut d, bid) or { return err_resp('not found', 404) }
 	if bot.role != c.role_bot || bot.status != 0 {
 		return err_resp('not found', 404)
 	}
 	if r.method == 'DELETE' {
-		deactivate_user(mut d, bid, now_epoch()) or {
-			return err_resp('unprocessable', 422)
-		}
-		return present(UserStatus{id: bid, status: 1})
+		deactivate_user(mut d, bid, now_epoch()) or { return err_resp('unprocessable', 422) }
+		return present(UserStatus{ id: bid, status: 1 })
 	}
 	mut webhook := ''
 	mut has_webhook := false
@@ -436,10 +426,13 @@ pub mut:
 
 fn db_update_user_name(mut d database.DB, id i64, name string, now i64) {
 	d.exec_none('UPDATE users SET name=?, updated_at=? WHERE id=?', [
-		name, to_db_time(now), id.str(),
+		name,
+		to_db_time(now),
+		id.str(),
 	]) or {}
 }
 
+// bot_key_reset resets a bot token.
 pub fn bot_key_reset(mut d database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
@@ -449,15 +442,13 @@ pub fn bot_key_reset(mut d database.DB, r Req) Resp {
 		return err_resp('forbidden', 403)
 	}
 	bid := int_path_arg(r, 'id')
-	bot := user(mut d, bid) or {
-		return err_resp('not found', 404)
-	}
+	bot := user(mut d, bid) or { return err_resp('not found', 404) }
 	if bot.role != c.role_bot || bot.status != 0 {
 		return err_resp('not found', 404)
 	}
 	token := random_bot_token()
 	set_bot_token(mut d, bid, token, now_epoch())
-	return present(BotKeyReset{id: bid, key: c.bot_key_of(bid, token)})
+	return present(BotKeyReset{ id: bid, key: c.bot_key_of(bid, token) })
 }
 
 pub struct BotKeyReset {
@@ -466,6 +457,7 @@ pub mut:
 	key string
 }
 
+// styles_show serves the custom styles.
 pub fn styles_show(mut d database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
@@ -474,9 +466,9 @@ pub fn styles_show(mut d database.DB, r Req) Resp {
 	if !admin_or_403(mut d, uid) {
 		return err_resp('forbidden', 403)
 	}
-	account := account_row(mut d, )
+	account := account_row(mut d)
 	styles := if acc := account { acc.custom_styles } else { '' }
-	return present(CustomStyles{custom_styles: styles})
+	return present(CustomStyles{ custom_styles: styles })
 }
 
 pub struct CustomStyles {
@@ -484,6 +476,7 @@ pub mut:
 	custom_styles string
 }
 
+// styles_update replaces the custom styles.
 pub fn styles_update(mut d database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
@@ -492,9 +485,7 @@ pub fn styles_update(mut d database.DB, r Req) Resp {
 	if !admin_or_403(mut d, uid) {
 		return err_resp('forbidden', 403)
 	}
-	account := account_row(mut d, ) or {
-		return err_resp('not found', 404)
-	}
+	account := account_row(mut d) or { return err_resp('not found', 404) }
 	mut styles := ''
 	if r.body != '' {
 		payload := json.decode(StylesPayload, r.body) or { StylesPayload{} }
@@ -510,13 +501,13 @@ pub fn styles_update(mut d database.DB, r Req) Resp {
 	update_styles(mut d, account.id, styles, now_epoch()) or {
 		return err_resp('unprocessable', 422)
 	}
-	return present(CustomStyles{custom_styles: styles})
+	return present(CustomStyles{ custom_styles: styles })
 }
 
 struct StylesPayload {
 pub mut:
 	custom_styles string
-	account      StylesPayloadInner
+	account       StylesPayloadInner
 }
 
 struct StylesPayloadInner {
@@ -524,6 +515,7 @@ pub mut:
 	custom_styles string
 }
 
+// join_code_reset resets the account join code.
 pub fn join_code_reset(mut d database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
@@ -532,11 +524,9 @@ pub fn join_code_reset(mut d database.DB, r Req) Resp {
 	if !admin_or_403(mut d, uid) {
 		return err_resp('forbidden', 403)
 	}
-	account := account_row(mut d, ) or {
-		return err_resp('not found', 404)
-	}
+	account := account_row(mut d) or { return err_resp('not found', 404) }
 	code := reset_join_code(mut d, account.id, now_epoch())
-	return present(JoinCodeView{join_code: code, join_url: '/join/' + code})
+	return present(JoinCodeView{ join_code: code, join_url: '/join/' + code })
 }
 
 pub struct JoinCodeView {
@@ -545,6 +535,7 @@ pub mut:
 	join_url  string
 }
 
+// ban bans or unbans a user.
 pub fn ban(mut d database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
@@ -560,10 +551,10 @@ pub fn ban(mut d database.DB, r Req) Resp {
 	now := now_epoch()
 	if r.method == 'DELETE' {
 		unban_user(mut d, other, now)
-		return present(BanStatus{id: other, status: 0})
+		return present(BanStatus{ id: other, status: 0 })
 	}
 	count := ban_user(mut d, other, now)
-	return present(BanStatusFull{id: other, status: 2, banned_ips: count})
+	return present(BanStatusFull{ id: other, status: 2, banned_ips: count })
 }
 
 pub struct BanStatus {

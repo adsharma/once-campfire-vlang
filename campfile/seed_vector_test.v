@@ -8,7 +8,8 @@ import os
 import workload as w
 
 fn vector_path() string {
-	return os.join_path(os.dir(os.dir(os.dir(os.dir(os.executable())))), 'campfile', 'testdata', 'seed_vector.txt')
+	return os.join_path(os.dir(os.dir(os.dir(os.dir(os.executable())))), 'campfile', 'testdata',
+		'seed_vector.txt')
 }
 
 fn test_seed_vector() {
