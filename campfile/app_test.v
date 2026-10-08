@@ -23,10 +23,10 @@ fn config_for_test() campfile.Config {
 
 fn make_req(method string, path string) campfile.Req {
 	return campfile.Req{
-		method: method
-		path:   path
-		query:  map[string]string{}
-		form:   map[string]string{}
+		method:  method
+		path:    path
+		query:   map[string]string{}
+		form:    map[string]string{}
 		cookies: map[string]string{}
 		headers: map[string]string{}
 	}

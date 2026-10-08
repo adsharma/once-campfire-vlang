@@ -28,7 +28,7 @@ pub fn placeholders(n int) string {
 // is_digits matches python's str.isdigit() for the `?as=` bench backdoor and
 // the bot anchor arguments.
 pub fn is_digits(text string) bool {
-	if text.len == 0 {
+	if text == '' {
 		return false
 	}
 	for ch in text {

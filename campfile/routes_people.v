@@ -46,6 +46,7 @@ pub mut:
 	user          UserProfile
 }
 
+// profile serves and patches the current-user profile.
 pub fn profile(mut db database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
@@ -76,7 +77,8 @@ pub fn profile(mut db database.DB, r Req) Resp {
 	mut room_types := map[i64]string{}
 	if room_ids.len > 0 {
 		statement :=
-			'SELECT id,coalesce(name,\'\'),type FROM rooms WHERE id IN (' + placeholders(room_ids.len) + ')'
+			"SELECT id,coalesce(name,''),type FROM rooms WHERE id IN (" + placeholders(room_ids.len) +
+			')'
 		room_rows := db.query_all(statement, id_params(room_ids)) or {
 			return err_resp('rooms not found', 404)
 		}
@@ -142,6 +144,7 @@ pub mut:
 	can_administer bool
 }
 
+// user_show serves one user card.
 pub fn user_show(mut db database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
@@ -177,6 +180,7 @@ fn push_view(p PushRow) PushView {
 	}
 }
 
+// push_list lists push subscriptions.
 pub fn push_list(mut db database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
@@ -204,6 +208,7 @@ pub mut:
 	push_subscription PushSub
 }
 
+// push_create upserts a push subscription.
 pub fn push_create(mut db database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
@@ -228,6 +233,7 @@ pub fn push_create(mut db database.DB, r Req) Resp {
 	return present(PushView{ id: row.id, endpoint: row.endpoint })
 }
 
+// push_delete deletes a push subscription.
 pub fn push_delete(mut db database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {
@@ -244,12 +250,14 @@ pub mut:
 	deleted i64
 }
 
+// new_deleted builds a deletion body.
 pub fn new_deleted(id i64) DeletedBody {
 	return DeletedBody{
 		deleted: id
 	}
 }
 
+// push_test checks a subscription exists (delivery is out of scope).
 pub fn push_test(mut db database.DB, r Req) Resp {
 	uid := actor_or_login(r)
 	if uid == -1 {

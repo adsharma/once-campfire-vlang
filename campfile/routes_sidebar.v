@@ -2,7 +2,7 @@
 module campfile
 
 import database
-
+// sidebar_handler serves the current-user sidebar.
 
 pub fn sidebar_handler(mut db database.DB, r Req) Resp {
 	uid := actor_or_login(r)

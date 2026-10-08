@@ -39,6 +39,7 @@ fn env_int(name string, fallback int) int {
 	return raw.int()
 }
 
+// from_env reads configuration from the environment with bench defaults.
 pub fn (cfg &Config) from_env() Config {
 	return Config{
 		users:         env_int('USERS', 60)

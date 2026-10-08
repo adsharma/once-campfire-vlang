@@ -32,6 +32,7 @@ pub const rng_a = i64(1103515245)
 pub const rng_c = i64(12345)
 pub const rng_m = i64(2147483648)
 
+// next advances the LCG and returns state mod modulus.
 pub fn (mut r Rng) next(modulus i64) i64 {
 	assert modulus > 0
 	// i64 arithmetic, not i32: rng_a * state reaches ~2.4e18.
@@ -43,10 +44,12 @@ pub fn (mut r Rng) next(modulus i64) i64 {
 // Porter stemmer (static-python subset: index loops, no slicing, no regex)
 // ---------------------------------------------------------------------------
 
+// is_vowel_char reports whether a one-byte string is a vowel.
 pub fn is_vowel_char(ch string) bool {
 	return ch == 'a' || ch == 'e' || ch == 'i' || ch == 'o' || ch == 'u'
 }
 
+// word_len counts the bytes of a word.
 pub fn word_len(word string) i64 {
 	return word.len
 }
@@ -59,6 +62,7 @@ pub fn char_at(word string, i i64) string {
 	return word[i].ascii_str()
 }
 
+// is_consonant_at reports whether the byte at i is a consonant (y follows the preceding byte).
 pub fn is_consonant_at(word string, i i64, n i64) bool {
 	assert n >= 0
 	ch := char_at(word, i)
@@ -74,6 +78,7 @@ pub fn is_consonant_at(word string, i i64, n i64) bool {
 	return true
 }
 
+// starts_at reports whether suffix occurs at pos.
 pub fn starts_at(word string, pos i64, suffix string) bool {
 	mut k := i64(0)
 	for ch in suffix {
@@ -85,6 +90,7 @@ pub fn starts_at(word string, pos i64, suffix string) bool {
 	return true
 }
 
+// ends_with reports whether word ends with suffix.
 pub fn ends_with(word string, n i64, suffix string) bool {
 	m := word_len(suffix)
 	if m > n {
@@ -93,6 +99,7 @@ pub fn ends_with(word string, n i64, suffix string) bool {
 	return starts_at(word, n - m, suffix)
 }
 
+// head_upto returns the first n bytes of a word.
 pub fn head_upto(word string, n i64) string {
 	mut out := []u8{cap: word.len}
 	mut k := i64(0)
@@ -105,6 +112,7 @@ pub fn head_upto(word string, n i64) string {
 	return out.bytestr()
 }
 
+// measure counts VC sequences (the Porter m).
 pub fn measure(word string, n i64) i64 {
 	mut m := i64(0)
 	mut i := i64(0)
@@ -126,6 +134,7 @@ pub fn measure(word string, n i64) i64 {
 	return m
 }
 
+// has_vowel reports whether the first n bytes contain a vowel.
 pub fn has_vowel(word string, n i64) bool {
 	mut i := i64(0)
 	for i < n {
@@ -137,6 +146,7 @@ pub fn has_vowel(word string, n i64) bool {
 	return false
 }
 
+// ends_double_consonant reports whether the word ends in a double consonant.
 pub fn ends_double_consonant(word string, n i64) bool {
 	if n < 2 {
 		return false
@@ -147,6 +157,7 @@ pub fn ends_double_consonant(word string, n i64) bool {
 	return is_consonant_at(word, n - 1, n)
 }
 
+// ends_cvc reports whether the word ends in consonant-vowel-consonant.
 pub fn ends_cvc(word string, n i64) bool {
 	if n < 3 {
 		return false
@@ -167,6 +178,7 @@ pub fn ends_cvc(word string, n i64) bool {
 	return true
 }
 
+// step_1a strips plural and -ed/-ing beginnings (Porter step 1a).
 pub fn step_1a(word string) string {
 	n := word_len(word)
 	if ends_with(word, n, 'sses') {
@@ -184,6 +196,7 @@ pub fn step_1a(word string) string {
 	return word
 }
 
+// step_1b_helper finishes step 1b mappings (at/bl/iz, double consonants, cvc).
 pub fn step_1b_helper(word string) string {
 	n := word_len(word)
 	if ends_with(word, n, 'at') || ends_with(word, n, 'bl') || ends_with(word, n, 'iz') {
@@ -202,6 +215,7 @@ pub fn step_1b_helper(word string) string {
 	return word
 }
 
+// step_1b strips -eed/-ed/-ing (Porter step 1b).
 pub fn step_1b(word string) string {
 	n := word_len(word)
 	if ends_with(word, n, 'eed') {
@@ -228,6 +242,7 @@ pub fn step_1b(word string) string {
 	return word
 }
 
+// step_1c turns terminal y into i after a vowel (Porter step 1c).
 pub fn step_1c(word string) string {
 	n := word_len(word)
 	if ends_with(word, n, 'y') {
@@ -258,6 +273,7 @@ fn step_pairs(word string, pairs []string) string {
 	return word
 }
 
+// step_2 maps double suffixes to single ones (Porter step 2).
 pub fn step_2(word string) string {
 	pairs := ['ational', 'ate', 'tional', 'tion', 'enci', 'ence', 'anci', 'ance', 'izer', 'ize',
 		'bli', 'ble', 'alli', 'al', 'entli', 'ent', 'eli', 'e', 'ousli', 'ous', 'ization', 'ize',
@@ -266,12 +282,14 @@ pub fn step_2(word string) string {
 	return step_pairs(word, pairs)
 }
 
+// step_3 maps -icate/-ative/-alize/-iciti/-ical/-ful/-ness (Porter step 3).
 pub fn step_3(word string) string {
 	pairs := ['icate', 'ic', 'ative', '', 'alize', 'al', 'iciti', 'ic', 'ical', 'ic', 'ful', '',
 		'ness', '']
 	return step_pairs(word, pairs)
 }
 
+// step_4 deletes -ant/-ence/-er/-ic/-able/-ible and friends (Porter step 4).
 pub fn step_4(word string) string {
 	n := word_len(word)
 	suffixes := ['al', 'ance', 'ence', 'er', 'ic', 'able', 'ible', 'ant', 'ement', 'ment', 'ent',
@@ -295,6 +313,7 @@ pub fn step_4(word string) string {
 	return word
 }
 
+// step_5 removes a final -e and one of -ll (Porter step 5).
 pub fn step_5(word string) string {
 	n := word_len(word)
 	if ends_with(word, n, 'e') {
@@ -316,6 +335,7 @@ pub fn step_5(word string) string {
 	return word
 }
 
+// porter_stem stems one lowercase token through steps 1a to 5.
 pub fn porter_stem(raw string) string {
 	if word_len(raw) <= 2 {
 		return raw
@@ -334,6 +354,7 @@ pub fn porter_stem(raw string) string {
 // Tokenizer + inverted index
 // ---------------------------------------------------------------------------
 
+// is_token_char reports whether a byte belongs in an index token.
 pub fn is_token_char(ch u8) bool {
 	if ch >= `a` && ch <= `z` {
 		return true
@@ -347,6 +368,7 @@ pub fn is_token_char(ch u8) bool {
 	return false
 }
 
+// lower_char lowercases one ASCII byte.
 pub fn lower_char(ch u8) u8 {
 	if ch >= `A` && ch <= `Z` {
 		return ch + 32
@@ -354,6 +376,7 @@ pub fn lower_char(ch u8) u8 {
 	return ch
 }
 
+// tokenize splits text into lowercase alphanumeric tokens.
 pub fn tokenize(text string) []string {
 	mut toks := []string{}
 	mut cur := []u8{}
@@ -373,6 +396,7 @@ pub fn tokenize(text string) []string {
 	return toks
 }
 
+// stem_tokens stems every token.
 pub fn stem_tokens(toks []string) []string {
 	mut out := []string{cap: toks.len}
 	for t in toks {
@@ -394,6 +418,7 @@ pub mut:
 	doc_count i64
 }
 
+// new_search_index returns an empty in-memory search index.
 pub fn new_search_index() &SearchIndex {
 	return &SearchIndex{
 		postings: map[string][]i64{}
@@ -401,6 +426,7 @@ pub fn new_search_index() &SearchIndex {
 	}
 }
 
+// add adds one term occurrence; ids arrive in increasing order.
 pub fn (mut idx SearchIndex) add(term string, msg_id i64) {
 	// Postings are flat [id, count, id, count, ...] pairs in increasing id
 	// order (messages are indexed in id order), so intersections merge in
@@ -418,6 +444,7 @@ pub fn (mut idx SearchIndex) add(term string, msg_id i64) {
 	}
 }
 
+// build_search_index indexes every message body of a store.
 pub fn build_search_index(s &Store) &SearchIndex {
 	mut idx := new_search_index()
 	for m in s.messages {
@@ -430,6 +457,7 @@ pub fn build_search_index(s &Store) &SearchIndex {
 	return idx
 }
 
+// index_message indexes one message body and returns the term count.
 pub fn (mut idx SearchIndex) index_message(room_id i64, msg_id i64, body string) i64 {
 	assert room_id > 0
 	assert msg_id > 0
@@ -444,6 +472,7 @@ pub fn (mut idx SearchIndex) index_message(room_id i64, msg_id i64, body string)
 	return added
 }
 
+// postings_for returns the flat posting pairs for a term, or empty.
 pub fn (idx SearchIndex) postings_for(term string) []i64 {
 	if term in idx.postings {
 		return idx.postings[term]
@@ -451,14 +480,17 @@ pub fn (idx SearchIndex) postings_for(term string) []i64 {
 	return []i64{}
 }
 
+// pair_id reads the message id of posting pos.
 pub fn pair_id(pairs []i64, pos i64) i64 {
 	return pairs[pos * 2]
 }
 
+// pair_count reads the term count of posting pos.
 pub fn pair_count(pairs []i64, pos i64) i64 {
 	return pairs[pos * 2 + 1]
 }
 
+// pair_len counts the postings in a flat pair list.
 pub fn pair_len(pairs []i64) i64 {
 	mut n := i64(0)
 	mut i := i64(0)
@@ -469,6 +501,7 @@ pub fn pair_len(pairs []i64) i64 {
 	return n
 }
 
+// search_messages intersects term postings, scopes to visible rooms, and ranks by count.
 pub fn search_messages(s &Store, idx &SearchIndex, user_id i64, query string,
 	limit i64) []i64 {
 	assert limit > 0
@@ -649,6 +682,7 @@ pub mut:
 	error string
 }
 
+// user_name_of returns a user display name, or empty when unknown.
 pub fn user_name_of(s &Store, user_id i64) string {
 	idx := s.find_user_index(user_id)
 	if idx < 0 {
@@ -657,6 +691,7 @@ pub fn user_name_of(s &Store, user_id i64) string {
 	return s.users[idx].name
 }
 
+// build_message_view assembles a message view with boosts and mention names.
 pub fn build_message_view(s &Store, m c.Message) MessageView {
 	mut v := MessageView{
 		id:                m.id
@@ -684,6 +719,7 @@ pub fn build_message_view(s &Store, m c.Message) MessageView {
 	return v
 }
 
+// room_page returns the newest page of a room for a member.
 pub fn room_page(s &Store, room_id i64, user_id i64) RoomPageResult {
 	if s.find_membership_index(room_id, user_id) < 0 {
 		return RoomPageResult{
@@ -715,6 +751,7 @@ pub fn room_page(s &Store, room_id i64, user_id i64) RoomPageResult {
 	}
 }
 
+// messages_page returns a message window around a before/after anchor.
 pub fn messages_page(s &Store, room_id i64, user_id i64, before_id i64,
 	after_id i64) MessagesPageResult {
 	if s.find_membership_index(room_id, user_id) < 0 {
@@ -755,6 +792,7 @@ pub fn messages_page(s &Store, room_id i64, user_id i64, before_id i64,
 	}
 }
 
+// sidebar lists visible memberships ordered by room name.
 pub fn sidebar(s &Store, user_id i64) SidebarResult {
 	if s.find_user_index(user_id) < 0 {
 		return SidebarResult{
@@ -809,6 +847,7 @@ pub fn sidebar(s &Store, user_id i64) SidebarResult {
 	}
 }
 
+// search_page searches one user corpus and attaches room names.
 pub fn search_page(s &Store, idx &SearchIndex, user_id i64, query string,
 	limit i64) SearchPageResult {
 	if s.find_user_index(user_id) < 0 {
@@ -839,6 +878,7 @@ pub fn search_page(s &Store, idx &SearchIndex, user_id i64, query string,
 	}
 }
 
+// post_message_view posts a plain body message and returns the domain result.
 pub fn post_message_view(mut s Store, room_id i64, creator_id i64, body string,
 	client_message_id string, now i64) c.MessageResult {
 	return s.post_message(room_id, creator_id, body, '', [], client_message_id, now)
@@ -861,10 +901,12 @@ pub const words = ['coffee', 'morning', 'standup', 'deploy', 'review', 'lunch', 
 	'talk', 'discuss', 'decide', 'shipit', 'rails', 'ruby', 'python', 'go', 'rust', 'lean', 'elixir',
 	'postgres', 'redis', 'sqlite', 'docker', 'server', 'client']
 
+// pick_word returns a deterministic corpus word.
 pub fn (mut r Rng) pick_word() string {
 	return words[r.next(words.len)]
 }
 
+// make_body builds a deterministic message body, sometimes about coffee.
 pub fn (mut r Rng) make_body(coffees bool) string {
 	n := 5 + r.next(20)
 	mut out := []u8{}
@@ -883,6 +925,7 @@ pub fn (mut r Rng) make_body(coffees bool) string {
 	return out.bytestr()
 }
 
+// seed_store builds the deterministic benchmark corpus (users, rooms, messages, boosts).
 pub fn seed_store(user_count i64, big_room_messages i64, seed i64) &c.Store {
 	assert user_count > 0
 	assert big_room_messages > 0

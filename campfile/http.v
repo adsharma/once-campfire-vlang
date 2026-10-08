@@ -13,6 +13,7 @@ import database
 // Req is everything a view reads from the request: method, path, query and
 // form arguments, the raw body, cookies, headers, the resolved actor, and
 // any `:param` captures the router pulled out of the path.
+
 pub struct Req {
 pub mut:
 	method      string
@@ -38,6 +39,7 @@ pub mut:
 	headers map[string]string
 }
 
+// present renders a value as a 200 JSON response.
 pub fn present[T](obj T) Resp {
 	return Resp{
 		status: 200
@@ -45,6 +47,7 @@ pub fn present[T](obj T) Resp {
 	}
 }
 
+// created renders a value as a 201 JSON response.
 pub fn created[T](obj T) Resp {
 	return Resp{
 		status: 201
@@ -52,10 +55,14 @@ pub fn created[T](obj T) Resp {
 	}
 }
 
+// blank renders an empty response with the given status.
 pub fn blank(code int) Resp {
-	return Resp{status: code}
+	return Resp{
+		status: code
+	}
 }
 
+// err_resp renders an error message as a JSON response with the given status.
 pub fn err_resp(message string, code int) Resp {
 	return Resp{
 		status: code
@@ -68,21 +75,30 @@ pub mut:
 	error string
 }
 
+// new_error builds an error body.
 pub fn new_error(message string) ErrorBody {
-	return ErrorBody{error: message}
-}
-
-pub fn login_redirect() Resp {
-	return Resp{
-		status:  302
-		headers: {'Location': '/session/new'}
+	return ErrorBody{
+		error: message
 	}
 }
 
+// login_redirect redirects anonymous requests to the login page.
+pub fn login_redirect() Resp {
+	return Resp{
+		status:  302
+		headers: {
+			'Location': '/session/new'
+		}
+	}
+}
+
+// redirect_to redirects to the given path.
 pub fn redirect_to(path string) Resp {
 	return Resp{
 		status:  302
-		headers: {'Location': path}
+		headers: {
+			'Location': path
+		}
 	}
 }
 
@@ -143,6 +159,7 @@ pub fn kind_to_room_type(kind string) string {
 	}
 }
 
+// int_path_arg reads an integer path capture, defaulting to zero.
 pub fn int_path_arg(r &Req, name string) i64 {
 	raw := r.path_args[name] or { return 0 }
 	if !is_digits(raw) {

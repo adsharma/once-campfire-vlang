@@ -1,0 +1,32 @@
+# Fast CI: format check, vet warnings-as-errors, and the quick unit
+# tests. The oracle suites (integrations/*, richtext/oracle) need reference
+# fixtures and network-isolated localhost servers, so they stay local-only
+# (`v test .`) and out of this workflow.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  v:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install V
+        run: |
+          curl -sL https://github.com/vlang/v/releases/latest/download/v_linux.zip -o /tmp/v.zip
+          unzip -q /tmp/v.zip -d /tmp
+          sudo /tmp/v/v symlink
+          v version
+
+      - name: Format check
+        run: v fmt -c campfire/ workload/ campfile/
+
+      - name: Vet (warnings fail)
+        run: v vet -W campfire/ workload/ campfile/
+
+      - name: Test
+        run: v test campfire/ workload/ campfile/

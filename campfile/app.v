@@ -30,7 +30,7 @@ pub mut:
 // extension schema, seed an empty store, and stash the engine.
 pub fn create_app(cfg Config) !App {
 	mut db := database.open(cfg.db_path(), 4)!
-	create_extensions(mut db, ) or { return err }
+	create_extensions(mut db) or { return err }
 	mut app := App{
 		cfg: cfg
 		db:  db
@@ -43,14 +43,16 @@ pub fn create_app(cfg Config) !App {
 // Seeding
 // ---------------------------------------------------------------------------
 
+// seed_if_empty seeds the deterministic corpus when the database is empty.
 pub fn (mut app App) seed_if_empty() ! {
 	n := app.db.query_int('SELECT count(*) FROM messages', [])!
 	if n > 0 {
 		return
 	}
 	store := w.seed_store(app.cfg.users, app.cfg.messages, app.cfg.seed)
-	digest := bcrypt.generate_from_password(app.cfg.seed_password.bytes(),
-		bcrypt.default_cost) or { '' }
+	digest := bcrypt.generate_from_password(app.cfg.seed_password.bytes(), bcrypt.default_cost) or {
+		''
+	}
 	counts := load_store(mut app.db, store, digest)!
 	println('seeded users=${app.cfg.users} messages=${counts.messages} fts=${counts.fts}')
 }
@@ -64,11 +66,11 @@ pub fn (mut app App) seed_if_empty() ! {
 // are only readable by the server that wrote them; what travels between
 // ports is the sessions table row the cookie points at.
 pub fn (app &App) sign_token(token string) string {
-	mac := hmac.new(app.cfg.secret_key.bytes(), token.bytes(), sha256.sum,
-		sha256.block_size)
+	mac := hmac.new(app.cfg.secret_key.bytes(), token.bytes(), sha256.sum, sha256.block_size)
 	return base64.url_encode((token + '.' + hex.encode(mac)).bytes())
 }
 
+// unsign_token verifies a signed cookie and returns the token.
 pub fn (app &App) unsign_token(signed string) string {
 	return unsign_token(app.cfg.secret_key, signed)
 }
@@ -77,7 +79,10 @@ pub fn (app &App) unsign_token(signed string) string {
 // Route table (one entry per Flask route in routes/*.py)
 // ---------------------------------------------------------------------------
 
-type HandlerFn = fn (mut database.DB, Req) Resp
+// vfmt off: v 0.5.2 fmt mangles qualified types in fn-type aliases
+// (`database.DB` becomes `tabase.DB`), so this line is exempt.
+type HandlerFn = fn (mut db database.DB, req Req) Resp
+// vfmt on
 
 struct Route {
 	method  string
@@ -250,6 +255,7 @@ mut:
 	app &App
 }
 
+// handle adapts net.http to Req/Resp and dispatches the route table.
 pub fn (mut h CampfileHandler) handle(req http.Request) http.Response {
 	path := req.url.split('?')[0]
 	mut query := map[string]string{}
@@ -298,4 +304,3 @@ pub fn (mut h CampfileHandler) handle(req http.Request) http.Response {
 		header:      header
 	}
 }
-
